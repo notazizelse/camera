@@ -1,0 +1,23 @@
+[Unit]
+Description=Kitchen queue server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=queue
+WorkingDirectory=/opt/kitchen-queue/server
+Environment=DEVICE_KEY=REPLACE_WITH_LONG_RANDOM_STRING
+ExecStart=/usr/bin/python3 /opt/kitchen-queue/server/app.py --port 8080 --host 127.0.0.1
+Restart=always
+RestartSec=5
+
+# The server reads config and appends samples; it needs nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kitchen-queue/data
+
+[Install]
+WantedBy=multi-user.target

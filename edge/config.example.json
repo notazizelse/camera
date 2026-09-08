@@ -1,0 +1,37 @@
+{
+  "source": "rtsp://viewer:CHANGE_ME@10.0.12.40:554/Streaming/Channels/102",
+  "server_url": "https://queue.yourschool.example/api/ingest",
+  "device_key": "CHANGE_ME_LONG_RANDOM_STRING",
+  "device_name": "kitchen-1",
+  "roi": [
+    [
+      0.08,
+      0.42
+    ],
+    [
+      0.93,
+      0.38
+    ],
+    [
+      0.96,
+      0.97
+    ],
+    [
+      0.05,
+      0.97
+    ]
+  ],
+  "detector": "yolo",
+  "model": "yolov8n.pt",
+  "confidence": 0.4,
+  "imgsz": 480,
+  "detect_every_seconds": 1.0,
+  "post_every_seconds": 10.0,
+  "smoothing": 0.35,
+  "snapshot": {
+    "enabled": false,
+    "every_seconds": 30,
+    "pixel_block": 22
+  },
+  "verify_tls": true
+}

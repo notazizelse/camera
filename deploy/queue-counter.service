@@ -1,0 +1,21 @@
+[Unit]
+Description=Kitchen queue counter (edge)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=queue
+WorkingDirectory=/opt/kitchen-queue/edge
+ExecStart=/opt/kitchen-queue/venv/bin/python /opt/kitchen-queue/edge/counter.py
+Restart=always
+RestartSec=10
+
+# Camera access needs the video group; nothing else.
+SupplementaryGroups=video
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

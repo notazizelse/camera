@@ -1,0 +1,11 @@
+# Pick ONE detector stack.
+#
+# yolo  - best accuracy, needs torch. Raspberry Pi 5 / mini PC / any x86 box.
+opencv-python-headless>=4.9
+ultralytics>=8.2
+#
+# dnn   - MobileNet-SSD via OpenCV only. Runs on a Pi 4 or Pi Zero 2 W.
+#         Comment out ultralytics above and drop the two model files into
+#         edge/models/ (see README).
+#
+# hog   - no extra downloads at all, opencv only. Smoke test quality only.

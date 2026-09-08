@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#fcfcfb">
+<title>Kitchen Queue</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">🍽️</span>
+    <div>
+      <h1 id="site-name">Kitchen Queue</h1>
+      <p id="queue-name" class="muted">Main counter</p>
+    </div>
+  </div>
+  <div class="conn" id="conn" data-status="loading">
+    <span class="conn-dot" aria-hidden="true"></span>
+    <span class="conn-text">Connecting…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ---------------- hero: the one number people came for ---------------- -->
+  <section class="hero" id="hero" data-tone="unknown" aria-labelledby="hero-label">
+    <h2 id="hero-label" class="section-label">Right now</h2>
+
+    <div class="hero-grid">
+      <div class="hero-count">
+        <div class="count-value" id="count" aria-live="polite" aria-atomic="true">–</div>
+        <div class="count-unit">people in line</div>
+      </div>
+
+      <div class="hero-read">
+        <p class="status-pill" id="status-pill">
+          <span class="status-icon" id="status-icon" aria-hidden="true"></span>
+          <span id="level-name">No data</span>
+        </p>
+        <p class="wait" id="wait">–</p>
+        <p class="trend muted" id="trend"></p>
+      </div>
+    </div>
+
+    <p class="freshness muted" id="freshness">Waiting for the counter…</p>
+  </section>
+
+  <!-- ---------------- advice ---------------- -->
+  <section class="card advice" id="advice" hidden>
+    <h2 class="section-label">When to go</h2>
+    <p class="advice-line" id="advice-line"></p>
+  </section>
+
+  <!-- ---------------- live trend ---------------- -->
+  <section class="card">
+    <div class="card-head">
+      <h2 class="section-label">Last 90 minutes</h2>
+      <span class="muted small">people in line</span>
+    </div>
+    <figure class="chart" id="chart-live-wrap">
+      <div class="chart-slot" id="chart-live"></div>
+      <figcaption class="muted small">Updated every few seconds from the counter.</figcaption>
+    </figure>
+    <details class="table-view">
+      <summary>View as table</summary>
+      <div class="table-scroll" id="table-live"></div>
+    </details>
+  </section>
+
+  <!-- ---------------- typical day ---------------- -->
+  <section class="card">
+    <div class="card-head">
+      <h2 class="section-label" id="pattern-title">Typical for today</h2>
+      <span class="muted small">average people in line</span>
+    </div>
+    <figure class="chart">
+      <div class="chart-slot" id="chart-pattern"></div>
+      <figcaption class="muted small" id="pattern-note">
+        Averaged over the last few weeks. The marker shows where you are now.
+      </figcaption>
+    </figure>
+    <details class="table-view">
+      <summary>View as table</summary>
+      <div class="table-scroll" id="table-pattern"></div>
+    </details>
+  </section>
+
+  <!-- ---------------- optional anonymised view ---------------- -->
+  <section class="card" id="snapshot-card" hidden>
+    <div class="card-head">
+      <h2 class="section-label">Queue shape</h2>
+      <span class="muted small">pixelated, refreshed every 30s</span>
+    </div>
+    <img id="snapshot" class="snapshot" alt="Pixelated outline of the queue area with blocks showing where people are standing.">
+    <p class="muted small">
+      Deliberately destroyed to about 20&times;15 pixels before it leaves the kitchen.
+      It shows how long the line is, and nothing about who is in it.
+    </p>
+  </section>
+
+  <!-- ---------------- trust ---------------- -->
+  <section class="card privacy">
+    <h2 class="section-label">What this does and doesn't do</h2>
+    <ul>
+      <li><strong>No footage leaves the kitchen.</strong> A small computer beside the camera counts people and sends one number.</li>
+      <li><strong>No faces, no names, no recording.</strong> Frames are processed in memory and discarded immediately.</li>
+      <li><strong>No tracking of you.</strong> This page stores nothing about who is reading it.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="foot muted small">
+  <span id="foot-device"></span>
+</footer>
+
+<div class="tooltip" id="tooltip" role="status" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

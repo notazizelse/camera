@@ -1,0 +1,735 @@
+<title>Canteen Queue Board</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root {
+  color-scheme: light;
+
+  --bg:        #f1f3f6;
+  --surface:   #ffffff;
+  --surface-2: #e8ecf2;
+  --line:      #dbe1ea;
+  --line-2:    #c3ccda;
+
+  --ink:   #101623;
+  --ink-2: #465064;
+  --ink-3: #6d7889;
+
+  --accent:      #1f3a5f;
+  --accent-soft: #e2e9f3;
+  --on-accent:   #ffffff;
+
+  --series:      #2a78d6;
+  --series-mid:  #6da7ec;
+  --series-soft: #cde2fb;
+
+  /* semantic, separate from the accent */
+  --good:     #0ca30c;
+  --warning:  #fab219;
+  --serious:  #ec835a;
+  --critical: #d03b3b;
+
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:        #0d1015;
+    --surface:   #151920;
+    --surface-2: #1d232c;
+    --line:      #29303b;
+    --line-2:    #3b4453;
+    --ink:   #f2f5fa;
+    --ink-2: #aeb8c7;
+    --ink-3: #7f8a9b;
+    --accent:      #9dbadf;
+    --accent-soft: #1a2432;
+    --on-accent:   #0d1015;
+    --series:      #3987e5;
+    --series-mid:  #2a78d6;
+    --series-soft: #184f95;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:        #0d1015;
+  --surface:   #151920;
+  --surface-2: #1d232c;
+  --line:      #29303b;
+  --line-2:    #3b4453;
+  --ink:   #f2f5fa;
+  --ink-2: #aeb8c7;
+  --ink-3: #7f8a9b;
+  --accent:      #9dbadf;
+  --accent-soft: #1a2432;
+  --on-accent:   #0d1015;
+  --series:      #3987e5;
+  --series-mid:  #2a78d6;
+  --series-soft: #184f95;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 26px 20px 56px;
+  display: grid;
+  gap: 18px;
+}
+
+/* ---------------------------------------------------------- masthead */
+
+.masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.masthead h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(23px, 4vw, 30px);
+  font-weight: 800;
+  letter-spacing: -.025em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+.masthead p { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; }
+
+.demo-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- scrubber */
+
+.scrubber {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 10px;
+}
+.scrubber-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0;
+}
+.scrub-time {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  margin: 0;
+}
+input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.bells {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.bells button {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+}
+.bells button:hover { color: var(--ink); border-color: var(--line-2); }
+.bells button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.bells button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------------------------------------------------------- the board */
+
+.board {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.board-top {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 8px 30px;
+  align-items: center;
+  padding: 22px 24px;
+}
+
+.tally { display: flex; align-items: baseline; gap: 12px; }
+.tally-num {
+  font-family: var(--display);
+  font-size: clamp(66px, 14vw, 96px);
+  font-weight: 800;
+  letter-spacing: -.05em;
+  line-height: .82;
+  font-variant-numeric: tabular-nums;
+}
+.tally-unit {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--ink-3);
+  max-width: 5.5em;
+}
+
+.verdict { display: grid; gap: 7px; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  width: fit-content;
+}
+.badge .dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--state, var(--ink-3));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--state, var(--ink-3)) 20%, transparent);
+}
+.est {
+  font-family: var(--display);
+  font-size: clamp(19px, 3.4vw, 25px);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  margin: 0;
+}
+.sub { margin: 0; font-size: 13px; color: var(--ink-3); font-family: var(--mono); }
+
+/* the recommendation reads as a strip of the board, not a separate card */
+.recommend {
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 14px 24px;
+  font-size: 15px;
+}
+.recommend b { font-weight: 600; color: var(--accent); }
+
+/* ---------------------------------------------------------- panels */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 22px 16px;
+}
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.panel h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.chart { width: 100%; overflow-x: auto; }
+.note { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
+
+/* ---------------------------------------------------------- pipeline */
+
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.stage { background: var(--surface); padding: 16px 18px; display: grid; gap: 5px; align-content: start; }
+.stage .where {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.stage h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+}
+.stage p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.wire {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 3px 7px;
+  width: fit-content;
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------- table */
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+caption { text-align: left; color: var(--ink-3); font-size: 13px; padding-bottom: 10px; }
+th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+tbody th { font-weight: 500; color: var(--ink); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+td.win { color: var(--good); font-weight: 500; }
+
+.foot { color: var(--ink-3); font-size: 13px; }
+.foot a { color: var(--accent); }
+
+@media (max-width: 620px) {
+  .board-top { grid-template-columns: 1fr; gap: 16px; padding: 20px; }
+  .recommend { padding: 14px 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <h1>Riverside High — canteen queue</h1>
+      <p>How long the line is, and whether it's worth waiting.</p>
+    </div>
+    <span class="demo-chip">Demo · simulated day</span>
+  </header>
+
+  <!-- The scrubber is the point of the demo: staff can see any moment of the
+       school day without waiting until lunchtime. -->
+  <section class="scrubber" aria-label="Time of day">
+    <div class="scrubber-head">
+      <p class="eyebrow">Showing the board at</p>
+      <span class="scrub-time" id="clock">12:05</span>
+    </div>
+    <input type="range" id="scrub" min="420" max="960" step="5" value="725"
+           aria-label="Time of day" aria-describedby="clock">
+    <div class="bells" id="bells"></div>
+  </section>
+
+  <section class="board" aria-label="Current queue">
+    <div class="board-top">
+      <div class="tally">
+        <span class="tally-num" id="count">—</span>
+        <span class="tally-unit">people<br>in line</span>
+      </div>
+      <div class="verdict">
+        <span class="badge" id="badge"><span class="dot"></span><span id="level">—</span></span>
+        <p class="est" id="est">—</p>
+        <p class="sub" id="sub">—</p>
+      </div>
+    </div>
+    <p class="recommend" id="recommend"></p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>The school day</h2>
+      <span class="eyebrow">average people in line, last 3 weeks</span>
+    </div>
+    <div class="chart" id="day-chart"></div>
+    <p class="note">Two weeks of counts is enough to predict the rush. This chart works
+      even when the counter is offline — which is why it, not the live number, is the
+      part students end up relying on.</p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Last 90 minutes</h2>
+      <span class="eyebrow">people in line</span>
+    </div>
+    <div class="chart" id="live-chart"></div>
+  </section>
+
+  <section>
+    <p class="eyebrow" style="margin:0 0 8px 2px">What actually runs</p>
+    <div class="pipeline">
+      <div class="stage">
+        <span class="where">In the kitchen</span>
+        <h3>Camera</h3>
+        <p>Existing CCTV sub-stream, or a £30 camera pointed at the floor where the line forms.</p>
+        <span class="wire">RTSP · never leaves the room</span>
+      </div>
+      <div class="stage">
+        <span class="where">In the kitchen</span>
+        <h3>Counter</h3>
+        <p>A Raspberry Pi counts people inside a marked area once a second. Frames are discarded immediately.</p>
+        <span class="wire">{"count": 26}</span>
+      </div>
+      <div class="stage">
+        <span class="where">Outside</span>
+        <h3>This page</h3>
+        <p>The server keeps 28 days of counts and nothing else. Outbound only — no open ports at school.</p>
+        <span class="wire">≈ 40 bytes / 10 s</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <table>
+      <caption>Why the count and not the footage</caption>
+      <thead>
+        <tr><th scope="col">&nbsp;</th><th scope="col">Streaming the CCTV</th><th scope="col">Publishing the count</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Leaves the building</th>
+          <td>Video of identifiable pupils</td>
+          <td class="win">One integer</td>
+        </tr>
+        <tr>
+          <th scope="row">Bandwidth</th>
+          <td class="num">~2 Mbit/s, continuous</td>
+          <td class="num win">~4 bytes/s</td>
+        </tr>
+        <tr>
+          <th scope="row">If the link is shared or scraped</th>
+          <td>Footage of minors, recordable</td>
+          <td class="win">A queue length</td>
+        </tr>
+        <tr>
+          <th scope="row">Answers "should I go now?"</th>
+          <td>Only while you watch it</td>
+          <td class="win">Directly, with a forecast</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="foot">
+    Simulated data, fictional school — the live version is driven by a counter in the kitchen.
+    Nothing on this page is recorded, and no images exist anywhere in the system.
+  </p>
+
+</div>
+
+<script>
+/* ------------------------------------------------------------------ model */
+
+// A school day, as bells: (start, end, peak queue length).
+const RUSHES = [
+  [460, 500, 6],    // 07:40 - before first period
+  [625, 655, 14],   // 10:25 - morning break
+  [720, 790, 30],   // 12:00 - lunch
+  [920, 950, 5],    // 15:20 - end of day
+];
+
+const BELLS = [
+  ['Before school', 470],
+  ['Break', 632],
+  ['Lunch bell', 725],
+  ['Late lunch', 770],
+  ['Home time', 928],
+];
+
+const SERVICE_SECONDS = 11;
+
+// Deterministic noise, so the same minute always renders the same board.
+function wobble(seed) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x) - 0.5;
+}
+
+function typical(minute) {
+  let total = 0;
+  for (const [start, end, peak] of RUSHES) {
+    if (minute < start - 15 || minute > end + 20) continue;
+    const pos = (minute - start) / (end - start);
+    // Sharp rise on the bell, slow decay afterwards.
+    total += peak * Math.exp(-((pos - 0.18) ** 2) / (pos < 0.18 ? 0.09 : 0.30));
+  }
+  return Math.max(0, total);
+}
+
+const observed = (minute) => Math.max(0, typical(minute) + wobble(minute) * 4.5);
+
+const LEVELS = [
+  [2, 'No queue', 'var(--good)'],
+  [7, 'Short', 'var(--good)'],
+  [15, 'Moderate', 'var(--warning)'],
+  [28, 'Long', 'var(--serious)'],
+  [Infinity, 'Packed', 'var(--critical)'],
+];
+
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+
+/* ------------------------------------------------------------------- svg */
+
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs) => {
+  const node = document.createElementNS(NS, tag);
+  for (const k in attrs) node.setAttribute(k, attrs[k]);
+  return node;
+};
+const text = (str, attrs) => {
+  const node = el('text', attrs);
+  node.textContent = str;
+  return node;
+};
+const token = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
+
+function niceMax(v) {
+  const t = Math.max(5, v * 1.15);
+  const step = t > 40 ? 10 : t > 15 ? 5 : 2;
+  return Math.ceil(t / step) * step;
+}
+
+/* The day: one bar per 10 minutes, the current moment marked, and the next
+   quiet stretch called out by name rather than left for the reader to spot. */
+function drawDay(host, nowMin, quiet) {
+  host.innerHTML = '';
+  const w = Math.max(320, host.clientWidth);
+  const h = 168;
+  const pad = { l: 26, r: 8, t: 22, b: 24 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  const x = (m) => pad.l + ((m - 420) / 540) * pw;
+  const peak = niceMax(Math.max(...Array.from({ length: 54 }, (_, i) => typical(420 + i * 10))));
+  const y = (v) => pad.t + ph - (Math.min(v, peak) / peak) * ph;
+
+  const svg = el('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img',
+    'aria-label': 'Average queue length through the school day, with the current time marked.' });
+
+  for (let i = 0; i <= 2; i++) {
+    const v = (peak / 2) * i;
+    svg.appendChild(el('line', { x1: pad.l, x2: w - pad.r, y1: y(v), y2: y(v),
+      stroke: token('--line'), 'stroke-width': 1 }));
+    svg.appendChild(text(String(Math.round(v)), { x: pad.l - 6, y: y(v) + 4,
+      'text-anchor': 'end', fill: token('--ink-3'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' }));
+  }
+
+  // the recommended window, drawn behind the bars
+  if (quiet) {
+    svg.appendChild(el('rect', { x: x(quiet.start), y: pad.t - 8,
+      width: Math.max(4, x(quiet.end) - x(quiet.start)), height: ph + 8,
+      fill: token('--good'), opacity: 0.12, rx: 3 }));
+  }
+
+  const barW = Math.max(2, pw / 54 - 2);
+  for (let i = 0; i < 54; i++) {
+    const m = 420 + i * 10;
+    const v = typical(m);
+    const top = y(v);
+    const bh = Math.max(1.5, pad.t + ph - top);
+    const r = Math.min(3, barW / 2, bh);
+    const current = Math.floor(nowMin / 10) * 10 === m;
+    svg.appendChild(el('path', {
+      d: `M${x(m) + 1},${top + bh}L${x(m) + 1},${top + r}Q${x(m) + 1},${top} ${x(m) + 1 + r},${top}`
+       + `L${x(m) + 1 + barW - r},${top}Q${x(m) + 1 + barW},${top} ${x(m) + 1 + barW},${top + r}`
+       + `L${x(m) + 1 + barW},${top + bh}Z`,
+      fill: current ? token('--series') : token('--series-mid'),
+    }));
+  }
+
+  for (let m = 480; m <= 960; m += 120) {
+    svg.appendChild(text(hhmm(m), { x: x(m), y: h - 7, 'text-anchor': 'middle',
+      fill: token('--ink-3'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' }));
+  }
+
+  svg.appendChild(el('line', { x1: x(nowMin), x2: x(nowMin), y1: pad.t - 12, y2: pad.t + ph,
+    stroke: token('--ink-2'), 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }));
+  svg.appendChild(text('now', { x: Math.min(x(nowMin) + 5, w - 30), y: pad.t - 12,
+    fill: token('--ink-2'), 'font-size': 10.5, 'font-weight': 600, 'font-family': 'IBM Plex Mono, monospace' }));
+
+  if (quiet) {
+    const mid = (quiet.start + quiet.end) / 2;
+    svg.appendChild(text('quietest', { x: x(mid), y: pad.t + 11, 'text-anchor': 'middle',
+      fill: token('--good'), 'font-size': 10.5, 'font-weight': 600, 'font-family': 'IBM Plex Mono, monospace' }));
+  }
+
+  host.appendChild(svg);
+}
+
+/* The last 90 minutes as the counter saw it. */
+function drawLive(host, nowMin) {
+  host.innerHTML = '';
+  const w = Math.max(320, host.clientWidth);
+  const h = 132;
+  const pad = { l: 26, r: 8, t: 12, b: 20 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  const from = nowMin - 90;
+  const pts = [];
+  for (let m = from; m <= nowMin; m += 1.5) pts.push({ m, v: observed(m) });
+
+  const peak = niceMax(Math.max(...pts.map((p) => p.v)));
+  const x = (m) => pad.l + ((m - from) / 90) * pw;
+  const y = (v) => pad.t + ph - (Math.min(v, peak) / peak) * ph;
+
+  const svg = el('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img',
+    'aria-label': 'Queue length over the last ninety minutes.' });
+
+  for (let i = 0; i <= 2; i++) {
+    const v = (peak / 2) * i;
+    svg.appendChild(el('line', { x1: pad.l, x2: w - pad.r, y1: y(v), y2: y(v),
+      stroke: token('--line'), 'stroke-width': 1 }));
+    svg.appendChild(text(String(Math.round(v)), { x: pad.l - 6, y: y(v) + 4,
+      'text-anchor': 'end', fill: token('--ink-3'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' }));
+  }
+
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.m).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+  svg.appendChild(el('path', { d: `${d}L${x(nowMin)},${pad.t + ph}L${x(from)},${pad.t + ph}Z`,
+    fill: token('--series'), opacity: 0.13 }));
+  svg.appendChild(el('path', { d, fill: 'none', stroke: token('--series'),
+    'stroke-width': 2, 'stroke-linejoin': 'round' }));
+
+  const last = pts[pts.length - 1];
+  svg.appendChild(el('circle', { cx: x(last.m), cy: y(last.v), r: 4.5,
+    fill: token('--series'), stroke: token('--surface'), 'stroke-width': 2 }));
+
+  [[from, 'start'], [from + 45, 'middle'], [nowMin, 'end']].forEach(([m, anchor]) => {
+    svg.appendChild(text(hhmm(m), { x: x(m), y: h - 5, 'text-anchor': anchor,
+      fill: token('--ink-3'), 'font-size': 10.5, 'font-family': 'IBM Plex Mono, monospace' }));
+  });
+
+  host.appendChild(svg);
+}
+
+/* ----------------------------------------------------------------- board */
+
+// The quietest 20-minute window in the next hour and a quarter.
+function quietWindow(nowMin) {
+  let best = null;
+  for (let s = nowMin + 10; s <= nowMin + 75 && s <= 950; s += 5) {
+    const avg = (typical(s) + typical(s + 10) + typical(s + 20)) / 3;
+    if (!best || avg < best.avg) best = { start: s, end: s + 20, avg };
+  }
+  return best;
+}
+
+function render(nowMin) {
+  const count = Math.round(observed(nowMin));
+  const [, name, colour] = LEVELS.find(([max]) => count <= max);
+  const waitMin = Math.round((count * SERVICE_SECONDS) / 60);
+
+  document.getElementById('clock').textContent = hhmm(nowMin);
+  document.getElementById('count').textContent = count;
+  document.getElementById('level').textContent = name;
+  document.getElementById('badge').style.setProperty('--state', colour);
+  document.getElementById('est').textContent =
+    count * SERVICE_SECONDS < 45 ? 'No real wait' : `About ${waitMin} min to be served`;
+
+  const earlier = Math.round(observed(nowMin - 6));
+  const trend = count - earlier > 2 ? 'filling up' : earlier - count > 2 ? 'clearing' : 'steady';
+  document.getElementById('sub').textContent =
+    `updated 4s ago · ${trend} · serving ~5.5/min`;
+
+  const quiet = quietWindow(nowMin);
+  const rec = document.getElementById('recommend');
+  if (count <= 3) {
+    rec.innerHTML = 'Barely a line. <b>Go now.</b>';
+  } else if (quiet && quiet.avg < count - 3) {
+    const saved = Math.round(((count - quiet.avg) * SERVICE_SECONDS) / 60);
+    rec.innerHTML = `It usually thins out around <b>${hhmm(quiet.start)}</b>. `
+      + `Waiting would save roughly <b>${saved} min</b> of standing in line.`;
+  } else {
+    rec.innerHTML = 'It stays about this busy for the next hour — <b>waiting won’t help.</b>';
+  }
+
+  drawDay(document.getElementById('day-chart'), nowMin, quiet);
+  drawLive(document.getElementById('live-chart'), nowMin);
+
+  for (const button of document.querySelectorAll('#bells button')) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.min) === nowMin));
+  }
+}
+
+/* ------------------------------------------------------------------ wire */
+
+const scrub = document.getElementById('scrub');
+const bells = document.getElementById('bells');
+
+for (const [label, minute] of BELLS) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.dataset.min = minute;
+  button.setAttribute('aria-pressed', 'false');
+  button.addEventListener('click', () => {
+    scrub.value = minute;
+    render(minute);
+  });
+  bells.appendChild(button);
+}
+
+scrub.addEventListener('input', () => render(Number(scrub.value)));
+
+let resizeTimer;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => render(Number(scrub.value)), 120);
+});
+
+render(Number(scrub.value));
+</script>

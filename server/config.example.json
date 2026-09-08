@@ -1,0 +1,39 @@
+{
+  "site_name": "Riverside High",
+  "queue_name": "Main canteen counter",
+  "service_seconds_per_person": 11,
+  "levels": [
+    {
+      "name": "No queue",
+      "max": 2,
+      "tone": "clear"
+    },
+    {
+      "name": "Short",
+      "max": 7,
+      "tone": "good"
+    },
+    {
+      "name": "Moderate",
+      "max": 15,
+      "tone": "warn"
+    },
+    {
+      "name": "Long",
+      "max": 28,
+      "tone": "bad"
+    },
+    {
+      "name": "Packed",
+      "max": 10000,
+      "tone": "worst"
+    }
+  ],
+  "stale_after_seconds": 45,
+  "offline_after_seconds": 300,
+  "snapshot_enabled": false,
+  "open_hours": {
+    "start": "07:30",
+    "end": "16:00"
+  }
+}

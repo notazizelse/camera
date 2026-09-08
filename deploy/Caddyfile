@@ -1,0 +1,19 @@
+# Caddy gets you HTTPS with no certificate work at all.
+#   apt install caddy && caddy run --config /etc/caddy/Caddyfile
+
+queue.yourschool.example {
+	reverse_proxy 127.0.0.1:8080 {
+		# Server-Sent Events must not be buffered or the live number freezes.
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# The page loads nothing from anywhere else. Say so.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+	}
+
+	encode gzip
+}

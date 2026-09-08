@@ -1,0 +1,8 @@
+data/
+server/config.json
+edge/config.json
+edge/models/
+*.pt
+__pycache__/
+*.pyc
+.venv/
