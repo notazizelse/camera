@@ -1,6 +1,7 @@
 data/
 server/config.json
 edge/config.json
+edge/pusher.json
 edge/models/
 *.pt
 __pycache__/

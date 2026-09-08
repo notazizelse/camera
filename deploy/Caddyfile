@@ -3,16 +3,24 @@
 
 queue.yourschool.example {
 	reverse_proxy 127.0.0.1:8080 {
-		# Server-Sent Events must not be buffered or the live number freezes.
+		# Nothing here may be buffered: it would freeze the live count (SSE)
+		# and stall the MJPEG stream. -1 flushes immediately.
 		flush_interval -1
+	}
+
+	# Video segments are pushed in, so the body limit has to fit one segment.
+	request_body {
+		max_size 20MB
 	}
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
-		# The page loads nothing from anywhere else. Say so.
-		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+		# hls.js comes from cdnjs and plays through Media Source Extensions,
+		# which needs blob: for both the media buffer and its worker. Drop
+		# cdnjs from script-src if you vendor hls.js into web/vendor/ instead.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; style-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; connect-src 'self'"
 	}
 
 	encode gzip

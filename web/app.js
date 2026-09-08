@@ -468,6 +468,7 @@ async function init() {
 
   await loadSlowData();
   connect();
+  initLive();
 
   setInterval(loadSlowData, 60000);
   // Keep the "updated Xs ago" line honest between pushes.

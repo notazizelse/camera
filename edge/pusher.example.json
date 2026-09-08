@@ -1,0 +1,14 @@
+{
+  "source": "rtsp://viewer:CHANGE_ME@10.0.12.40:554/Streaming/Channels/102",
+  "server_url": "https://queue.yourschool.example",
+  "device_key": "CHANGE_ME_MUST_MATCH_SERVER_DEVICE_KEY",
+  "mode": "hls",
+  "transcode": false,
+  "height": 360,
+  "bitrate": "700k",
+  "segment_seconds": 2,
+  "snapshot_interval": 2.0,
+  "snapshot_quality": 6,
+  "rtmp_url": "rtmp://your-server:1935/live/cafeteria",
+  "ffmpeg": "ffmpeg"
+}

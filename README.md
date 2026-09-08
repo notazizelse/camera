@@ -2,35 +2,45 @@
 
 Shows students how long the canteen line is, so they can decide when to go.
 
-A camera watches the queue. A small computer next to it counts people **and sends
-one integer**. No video leaves the kitchen. The website turns that integer into a
-count, a wait estimate, a live trend, and — the part people actually use — a
-"typical for this weekday" chart that says whether waiting fifteen minutes helps.
+A camera watches the queue. The website turns that into a live count, a wait
+estimate, and — the part people actually use — a "typical for this weekday"
+chart that says whether waiting fifteen minutes helps. It can also carry the
+live picture, behind an access code.
 
 ```
- camera ──RTSP/USB──▶ edge counter ──HTTPS POST {"count": 14}──▶ server ──▶ website
- (kitchen, stays put)  (Pi, in the kitchen)      outbound only    (VPS)     (phones)
+ camera ──RTSP──▶ PC or Pi ──HTTPS, outbound only──▶ server ──▶ website
+                     │                                            count: public
+                     ├── counter.py  →  {"count": 14}             video: access code
+                     └── pusher.py   →  HLS segments / JPEGs
 ```
 
-## Why it sends a number and not video
+Two things can run on whatever machine already sees the camera, together or
+separately: **`counter.py`** publishes the queue length, and **`pusher.py`**
+forwards the picture. Both only ever dial out, so the school network needs no
+changes and nothing is exposed.
 
-This is the single most important design decision in the project, and the one
-that will decide whether your school lets you build it.
+## Count, picture, or both
 
-Publishing CCTV of a school canteen to a website is a different activity from
-running CCTV for security. It is a new purpose for footage of identifiable
-minors, on a public URL, that anyone can screen-record. Expect that to be
-refused, and expect it to be refused correctly.
+They are separate switches, and they have genuinely different profiles:
 
-Counting people and publishing the count is not that. Nothing identifiable is
-transmitted, nothing is stored, and the output is exactly what students wanted
-in the first place — *how long is the line* — with none of what they didn't ask
-for. It is also about 30,000× less bandwidth.
+| | Count (`counter.py`) | Picture (`pusher.py`) |
+|---|---|---|
+| Leaves the building | one integer per 10 s | 0.02–1 Mbit/s of video |
+| Who can see it | everyone | access-code holders |
+| Kept anywhere | 28 days of numbers | nothing; ~12 s in RAM |
+| Works on a slow phone | yes | mostly |
+| Answers "should I go now?" | directly, with a forecast | only while you watch |
+| Approval needed | usually a conversation | a real one, in writing |
 
-Read [`docs/architecture.md`](docs/architecture.md) before you build anything:
-it covers the camera options, the sensor alternatives that avoid cameras
-entirely, the network constraints you will hit inside a school, and what to put
-in front of the people who have to approve this.
+Running the count alongside the video is worth it even if the picture is the
+point: it keeps working when the stream is down, it is what a phone on a
+locked screen can show, and it produces the busy-times forecast that video
+cannot. Both read the same camera, so there is no extra hardware.
+
+Before mounting anything, read [`docs/architecture.md`](docs/architecture.md)
+for the camera and network constraints, and
+[`docs/forwarding.md`](docs/forwarding.md) for getting the picture out of a
+school network.
 
 ## Run it locally in two minutes
 
@@ -58,10 +68,36 @@ to staff.
 |---|---|
 | `server/app.py` | HTTP + SSE server. Stdlib only, no pip install, no build step. |
 | `server/store.py` | Append-only JSONL storage, weekday patterns, service-rate inference. |
-| `edge/counter.py` | The thing beside the camera. Counts people in a region, POSTs the number. |
+| `edge/counter.py` | Counts people in a region and POSTs the number. |
+| `edge/pusher.py` | Forwards the live picture. ffmpeg supervision, watchdog, three transports. |
+| `edge/discover.py` | Finds the camera's RTSP URL when the NVR software won't tell you. |
 | `web/` | The student-facing page. Vanilla JS, hand-built SVG charts, no dependencies. |
-| `scripts/simulate.py` | Fake edge device for development and demos. |
+| `scripts/simulate.py` | Fake counter for development and demos. |
+| `scripts/fake_stream.py` | Fake video pusher - tests the relay with no ffmpeg and no camera. |
 | `deploy/` | systemd units and a Caddy config for a real deployment. |
+
+## Forwarding the live camera
+
+If you already have a PC that can see the footage, that PC is the whole edge:
+
+```bash
+winget install Gyan.FFmpeg
+```
+
+```bash
+python edge/discover.py --user viewer --password THEPASSWORD
+```
+
+```bash
+python edge/pusher.py --test
+```
+
+`--test` pushes a test pattern, so you can confirm the entire path before
+involving the camera. Full guide, including what to do when the NVR software
+refuses to expose a stream: [`docs/forwarding.md`](docs/forwarding.md).
+
+Live video is **off** until you set `VIEW_CODE` on the server, and the count
+stays public either way — only the picture sits behind the code.
 
 ## Setting up the real counter
 
@@ -108,8 +144,12 @@ export DEVICE_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))
 python server/app.py --port 8080
 ```
 
-`DEVICE_KEY` is the shared secret the edge device sends in `X-Device-Key`.
-Without it, anyone who finds your URL can post fake queue lengths.
+`DEVICE_KEY` is the shared secret every edge device sends in `X-Device-Key`.
+Without it, anyone who finds your URL can post fake queue lengths or fake video.
+
+`VIEW_CODE` controls the live picture. Unset, live video is off entirely and
+only the count is served. Set it to a code students can type, or to the literal
+string `open` to remove the gate (the server prints a warning when you do).
 
 ### API
 
@@ -121,6 +161,12 @@ Without it, anyone who finds your URL can post fake queue lengths.
 | `GET /api/history?minutes=90` | Recent samples for the live chart. |
 | `GET /api/pattern?weekday=1` | Average count by time of day. |
 | `GET /api/snapshot.jpg` | Pixelated frame, only if `snapshot_enabled`. |
+| `PUT /api/hls/<name>` | Pusher → server. Playlist and segments. Needs `X-Device-Key`. |
+| `POST /api/frame` | Pusher → server. One JPEG, for snapshot mode. |
+| `GET /api/media-state` | Public. Whether a picture exists and whether you may see it. |
+| `POST /api/access` | Exchange the access code for a 12-hour cookie. |
+| `GET /live/stream.m3u8` | The stream. Requires the cookie. |
+| `GET /api/live.mjpg` | JPEG frames as one stream. Requires the cookie. |
 
 ## Deploying
 

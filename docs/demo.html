@@ -414,60 +414,61 @@ td.win { color: var(--good); font-weight: 500; }
     <p class="eyebrow" style="margin:0 0 8px 2px">What actually runs</p>
     <div class="pipeline">
       <div class="stage">
-        <span class="where">In the kitchen</span>
+        <span class="where">The cafeteria</span>
         <h3>Camera</h3>
-        <p>Existing CCTV sub-stream, or a £30 camera pointed at the floor where the line forms.</p>
-        <span class="wire">RTSP · never leaves the room</span>
+        <p>The CCTV already in the room. Nothing about it changes, and nothing new is pointed at anyone.</p>
+        <span class="wire">RTSP sub-stream · no audio</span>
       </div>
       <div class="stage">
-        <span class="where">In the kitchen</span>
-        <h3>Counter</h3>
-        <p>A Raspberry Pi counts people inside a marked area once a second. Frames are discarded immediately.</p>
-        <span class="wire">{"count": 26}</span>
+        <span class="where">The cafeteria PC</span>
+        <h3>Counter &amp; forwarder</h3>
+        <p>The machine that already sees the camera counts the queue, and forwards the picture to anyone holding the access code.</p>
+        <span class="wire">{"count": 26} + HLS</span>
       </div>
       <div class="stage">
         <span class="where">Outside</span>
         <h3>This page</h3>
-        <p>The server keeps 28 days of counts and nothing else. Outbound only — no open ports at school.</p>
-        <span class="wire">≈ 40 bytes / 10 s</span>
+        <p>Counts are kept 28 days. Video is held in memory for seconds and overwritten — there is no recording.</p>
+        <span class="wire">outbound only · no open ports</span>
       </div>
     </div>
   </section>
 
   <section class="panel">
     <table>
-      <caption>Why the count and not the footage</caption>
+      <caption>What is published, and to whom</caption>
       <thead>
-        <tr><th scope="col">&nbsp;</th><th scope="col">Streaming the CCTV</th><th scope="col">Publishing the count</th></tr>
+        <tr><th scope="col">&nbsp;</th><th scope="col">Who can see it</th><th scope="col">What is kept</th></tr>
       </thead>
       <tbody>
         <tr>
-          <th scope="row">Leaves the building</th>
-          <td>Video of identifiable pupils</td>
-          <td class="win">One integer</td>
+          <th scope="row">Queue count &amp; forecast</th>
+          <td class="win">Anyone with the link</td>
+          <td class="num">28 days of numbers</td>
         </tr>
         <tr>
-          <th scope="row">Bandwidth</th>
-          <td class="num">~2 Mbit/s, continuous</td>
-          <td class="num win">~4 bytes/s</td>
+          <th scope="row">Live picture</th>
+          <td>Access code holders only</td>
+          <td class="num">Nothing — seconds, in memory</td>
         </tr>
         <tr>
-          <th scope="row">If the link is shared or scraped</th>
-          <td>Footage of minors, recordable</td>
-          <td class="win">A queue length</td>
+          <th scope="row">Sound</th>
+          <td class="win">Nobody</td>
+          <td class="win">Never captured</td>
         </tr>
         <tr>
-          <th scope="row">Answers "should I go now?"</th>
-          <td>Only while you watch it</td>
-          <td class="win">Directly, with a forecast</td>
+          <th scope="row">Who anyone is</th>
+          <td class="win">Nobody</td>
+          <td class="win">No recognition, no names</td>
         </tr>
       </tbody>
     </table>
   </section>
 
   <p class="foot">
-    Simulated data, fictional school — the live version is driven by a counter in the kitchen.
-    Nothing on this page is recorded, and no images exist anywhere in the system.
+    Simulated data, fictional school. The live version reads the camera the cafeteria PC
+    already sees. Live view sits behind an access code and is never recorded; the queue
+    count is public.
   </p>
 
 </div>

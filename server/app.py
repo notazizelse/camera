@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -28,6 +30,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+from media import MediaRelay
 from store import Store
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +56,10 @@ DEFAULTS = {
     "offline_after_seconds": 300,
     "snapshot_enabled": False,
     "open_hours": {"start": "07:30", "end": "16:00"},
+    # Live video is a separate decision from the count, and a separate
+    # audience: the count is public, the picture is not. See docs/forwarding.md.
+    "video_enabled": True,
+    "video_note": "Live view is limited to staff and students with the access code.",
 }
 
 
@@ -90,12 +97,56 @@ class Hub:
 
 
 class App:
-    def __init__(self, config: dict, store: Store, device_key: str):
+    def __init__(self, config: dict, store: Store, device_key: str,
+                 view_code: str | None = None):
         self.config = config
         self.store = store
         self.device_key = device_key
         self.hub = Hub()
         self.snapshot: tuple[float, bytes] | None = None
+        self.relay = MediaRelay()
+
+        # None means live video is switched off entirely - the safe default,
+        # so an operator who never thought about who can watch never
+        # accidentally publishes a cafeteria to the open internet.
+        self.view_code = view_code
+        self._gate_secret = hashlib.sha256(
+            f"{device_key}:{view_code}".encode()
+        ).digest()
+        self._failures: dict[str, list[float]] = {}
+        self._fail_lock = threading.Lock()
+
+    # ---------- viewer gate ----------
+
+    @property
+    def video_on(self) -> bool:
+        return bool(self.config.get("video_enabled")) and self.view_code is not None
+
+    def viewer_token(self) -> str:
+        return hmac.new(self._gate_secret, b"viewer", hashlib.sha256).hexdigest()
+
+    def check_code(self, code: str, remote: str) -> bool:
+        """Constant-time check with a crude per-IP lockout.
+
+        The access code is short enough to type on a phone, which means it is
+        short enough to guess at speed. Ten wrong tries buys a cool-off.
+        """
+        now = time.time()
+        with self._fail_lock:
+            recent = [t for t in self._failures.get(remote, []) if now - t < 300]
+            self._failures[remote] = recent
+            if len(recent) >= 10:
+                return False
+        ok = secrets.compare_digest(code, self.view_code or "")
+        if not ok:
+            with self._fail_lock:
+                self._failures.setdefault(remote, []).append(now)
+        return ok
+
+    def locked_out(self, remote: str) -> bool:
+        now = time.time()
+        with self._fail_lock:
+            return len([t for t in self._failures.get(remote, []) if now - t < 300]) >= 10
 
     # ---------- domain logic ----------
 
@@ -237,9 +288,45 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
+        """True for the pusher/counter, which holds the device key."""
         return secrets.compare_digest(
             self.headers.get("X-Device-Key", ""), self.app.device_key
         )
+
+    def _viewer_ok(self) -> bool:
+        """True for a browser that has entered the access code.
+
+        The count is public; only the picture is behind this.
+        """
+        app = self.app
+        if not app.video_on:
+            return False
+        if app.view_code == "open":
+            return True
+        wanted = app.viewer_token()
+        for part in self.headers.get("Cookie", "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == "qv" and secrets.compare_digest(value, wanted):
+                return True
+        return False
+
+    def _hls_name(self, path: str) -> str | None:
+        """Segment/playlist name from the URL, rejecting anything path-like."""
+        name = path.rsplit("/", 1)[-1]
+        if not name or "/" in name or ".." in name or len(name) > 80:
+            return None
+        if not name.endswith((".m3u8", ".ts", ".m4s", ".mp4")):
+            return None
+        return name
+
+    def _stream_headers(self, ctype: str) -> None:
+        """Headers for a response with no length, ended by closing the socket."""
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
 
     # ---------- routes ----------
 
@@ -247,12 +334,59 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Device-Key")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods",
+                         "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def do_PUT(self):
+        """ffmpeg pushes the playlist and each segment here."""
+        path = urlparse(self.path).path
+        if not path.startswith("/api/hls/"):
+            return self._send_json({"error": "not found"}, 404)
+        if not self._authorized():
+            return self._send_json({"error": "bad device key"}, 401)
+        name = self._hls_name(path)
+        if not name:
+            return self._send_json({"error": "bad segment name"}, 400)
+
+        length = int(self.headers.get("Content-Length", 0))
+        if length > 16_000_000:
+            return self._send_json({"error": "segment too large"}, 413)
+        data = self.rfile.read(length)
+
+        if name.endswith(".m3u8"):
+            self.app.relay.put_playlist(data)
+        else:
+            self.app.relay.put_segment(name, data)
+        return self._send_json({"ok": True})
+
+    def do_DELETE(self):
+        """ffmpeg rolls old segments off the playlist and deletes them."""
+        path = urlparse(self.path).path
+        if not path.startswith("/api/hls/") or not self._authorized():
+            return self._send_json({"error": "not found"}, 404)
+        name = self._hls_name(path)
+        if name:
+            self.app.relay.drop_segment(name)
+        return self._send_json({"ok": True})
+
     def do_POST(self):
-        if urlparse(self.path).path != "/api/ingest":
+        path = urlparse(self.path).path
+
+        if path == "/api/frame":
+            if not self._authorized():
+                return self._send_json({"error": "bad device key"}, 401)
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 < length <= 4_000_000:
+                return self._send_json({"error": "bad frame size"}, 400)
+            self.app.relay.put_frame(self.rfile.read(length))
+            return self._send_json({"ok": True})
+
+        if path == "/api/access":
+            return self._access()
+
+        if path != "/api/ingest":
             return self._send_json({"error": "not found"}, 404)
         if not self._authorized():
             return self._send_json({"error": "bad device key"}, 401)
@@ -297,7 +431,120 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stream":
             return self._sse()
 
+        # Public: says whether a picture exists and whether you may see it.
+        # Says nothing about what is in it.
+        if path == "/api/media-state":
+            state = self.app.relay.state()
+            state["enabled"] = self.app.video_on
+            state["authorized"] = self._viewer_ok()
+            state["note"] = self.app.config.get("video_note", "")
+            return self._send_json(state)
+
+        if path.startswith("/live/") or path in ("/api/live.jpg", "/api/live.mjpg"):
+            if not self.app.video_on:
+                return self._send_json({"error": "live video is disabled"}, 503)
+            if not self._viewer_ok():
+                return self._send_json({"error": "access code required"}, 403)
+            if path == "/api/live.jpg":
+                return self._live_jpg()
+            if path == "/api/live.mjpg":
+                return self._live_mjpg()
+            return self._live_hls(path)
+
         return self._static(path)
+
+    # ---------- live video ----------
+
+    def _live_hls(self, path: str):
+        name = self._hls_name(path)
+        if not name:
+            return self._send_json({"error": "not found"}, 404)
+        if name.endswith(".m3u8"):
+            data = self.app.relay.get_playlist()
+            ctype = "application/vnd.apple.mpegurl"
+        else:
+            data = self.app.relay.get_segment(name)
+            ctype = "video/mp2t"
+        if data is None:
+            return self._send_json({"error": "not available"}, 404)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _live_jpg(self):
+        frame = self.app.relay.get_frame()
+        if not frame:
+            return self._send_json({"error": "no frame"}, 404)
+        ts, data = frame
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Age", str(round(time.time() - ts, 1)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _live_mjpg(self):
+        """An endless multipart response - plays in a plain <img> tag."""
+        q = self.app.relay.subscribe_frames()
+        self._stream_headers("multipart/x-mixed-replace; boundary=frame")
+        current = self.app.relay.get_frame()
+        try:
+            if current:
+                self._write_part(current[1])
+            while True:
+                try:
+                    self._write_part(q.get(timeout=30))
+                except queue.Empty:
+                    break  # pusher stopped; let the browser reconnect
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            self.app.relay.unsubscribe_frames(q)
+
+    def _write_part(self, jpeg: bytes) -> None:
+        header = (
+            "--frame\r\n"
+            "Content-Type: image/jpeg\r\n"
+            f"Content-Length: {len(jpeg)}\r\n\r\n"
+        )
+        self.wfile.write(header.encode() + jpeg + b"\r\n")
+        self.wfile.flush()
+
+    def _access(self):
+        """Exchange the access code for a cookie."""
+        app = self.app
+        if not app.video_on:
+            return self._send_json({"error": "live video is disabled"}, 503)
+        remote = self.client_address[0]
+        if app.locked_out(remote):
+            return self._send_json(
+                {"error": "too many attempts, try again in a few minutes"}, 429
+            )
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            code = json.loads(self.rfile.read(min(length, 4096)) or b"{}").get("code", "")
+        except (ValueError, json.JSONDecodeError):
+            return self._send_json({"error": "bad request"}, 400)
+
+        if not app.check_code(str(code), remote):
+            return self._send_json({"error": "that code is not right"}, 403)
+
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        body = json.dumps({"ok": True}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header(
+            "Set-Cookie",
+            f"qv={app.viewer_token()}; Path=/; Max-Age=43200; "
+            f"HttpOnly; SameSite=Lax{secure}",
+        )
+        self.end_headers()
+        self.wfile.write(body)
 
     def _snapshot(self):
         snap = self.app.snapshot
@@ -314,12 +561,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _sse(self):
         q = self.app.hub.subscribe()
+        # No Content-Length and no chunked encoding, so the response is framed
+        # by closing the socket - which HTTP/1.1 requires us to announce.
+        # Without this some reverse proxies hold the stream open and buffer it.
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "keep-alive")
+        self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
+        self.close_connection = True
         try:
             self.wfile.write(f"data: {json.dumps(self.app.state())}\n\n".encode())
             self.wfile.flush()
@@ -393,9 +644,22 @@ def main() -> None:
         device_key = "dev-key-change-me"
         print("WARNING: DEVICE_KEY not set, using 'dev-key-change-me' (development only)")
 
+    # Live video is off unless someone decides who may watch it. VIEW_CODE=open
+    # turns the gate off deliberately; leaving it unset turns video off.
+    view_code = os.environ.get("VIEW_CODE")
+
     config = load_config(args.config)
     store = Store(args.data, args.retention_days)
-    Handler.app = App(config, store, device_key)
+    Handler.app = App(config, store, device_key, view_code)
+
+    if not config.get("video_enabled"):
+        print("live video: disabled in config.json")
+    elif view_code is None:
+        print("live video: OFF (set VIEW_CODE to a code, or 'open' for no gate)")
+    elif view_code == "open":
+        print("live video: ON with NO access code - anyone with the URL can watch")
+    else:
+        print("live video: ON, gated by access code")
 
     httpd = QueueServer((args.host, args.port), Handler)
     print(f"queue server listening on http://{args.host}:{args.port}")

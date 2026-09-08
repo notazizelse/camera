@@ -55,6 +55,36 @@
     <p class="advice-line" id="advice-line"></p>
   </section>
 
+  <!-- ---------------- live camera ---------------- -->
+  <section class="card" id="live-card" hidden>
+    <div class="card-head">
+      <h2 class="section-label">Live view</h2>
+      <span class="muted small" id="live-status"></span>
+    </div>
+
+    <!-- shown until the access code is entered -->
+    <form class="gate" id="gate" hidden>
+      <label class="gate-label" for="gate-code">Access code</label>
+      <div class="gate-row">
+        <input type="password" id="gate-code" name="code" autocomplete="off"
+               inputmode="text" placeholder="Enter code" required>
+        <button type="submit">Watch</button>
+      </div>
+      <p class="muted small" id="gate-note"></p>
+      <p class="gate-error" id="gate-error" hidden></p>
+    </form>
+
+    <div id="player" hidden>
+      <video id="video" class="video" playsinline muted controls></video>
+      <img id="video-img" class="video" alt="Live view of the canteen queue." hidden>
+      <p class="muted small" id="live-note"></p>
+    </div>
+
+    <p class="muted small" id="live-offline" hidden>
+      The camera is not sending anything right now.
+    </p>
+  </section>
+
   <!-- ---------------- live trend ---------------- -->
   <section class="card">
     <div class="card-head">
@@ -105,9 +135,19 @@
   <!-- ---------------- trust ---------------- -->
   <section class="card privacy">
     <h2 class="section-label">What this does and doesn't do</h2>
-    <ul>
+
+    <!-- Counting only. Shown when no camera is being forwarded. -->
+    <ul id="privacy-count">
       <li><strong>No footage leaves the kitchen.</strong> A small computer beside the camera counts people and sends one number.</li>
       <li><strong>No faces, no names, no recording.</strong> Frames are processed in memory and discarded immediately.</li>
+      <li><strong>No tracking of you.</strong> This page stores nothing about who is reading it.</li>
+    </ul>
+
+    <!-- Live view is on. These have to be true, so keep them true. -->
+    <ul id="privacy-video" hidden>
+      <li><strong>The queue count is public. The picture is not.</strong> Live view needs the access code the school gives out.</li>
+      <li><strong>Never any sound.</strong> Audio is dropped at the camera and never sent.</li>
+      <li><strong>Nothing is recorded.</strong> The server holds a few seconds of video in memory and overwrites it continuously — there is no archive to request, share, or leak.</li>
       <li><strong>No tracking of you.</strong> This page stores nothing about who is reading it.</li>
     </ul>
   </section>
@@ -120,6 +160,7 @@
 
 <div class="tooltip" id="tooltip" role="status" hidden></div>
 
+<script src="live.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
