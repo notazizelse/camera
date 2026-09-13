@@ -181,9 +181,28 @@ string `open` to remove the gate (the server prints a warning when you do).
 | `GET /live/stream.m3u8` | The stream. Requires the cookie. |
 | `GET /api/live.mjpg` | JPEG frames as one stream. Requires the cookie. |
 
+## Setting up the camera PC in one command
+
+On the always-on PC that can see the camera:
+
+```powershell
+.\deploy\setup-pc.ps1 -NvrHost 10.0.12.40 -NvrUser queue
+```
+
+It checks Python, finds the NVR, lists the channels and picks the right
+sub-stream, generates the device key and access code, writes both config files
+and three launchers. Add `-InstallFfmpeg` for smooth video instead of stills,
+`-RegisterTasks` to start at boot, and `-Tunnel` for a public HTTPS URL.
+
 ## Deploying
 
-See `deploy/`. The short version: put the server on a small VPS behind Caddy
-(automatic HTTPS), run both processes under systemd, and let the Pi reach the
-server outbound over HTTPS. Do **not** port-forward anything into the school
-network, and do not expose the camera itself to the internet.
+[`docs/deploy.md`](docs/deploy.md) covers the options. The short version:
+**Netlify cannot host this** — the relay needs memory shared between requests
+and connections held open for minutes, which serverless functions do not do,
+and the ingest alone would burn a free tier's monthly invocations in about a
+day.
+
+What does work, easiest first: run the server on the camera PC and publish it
+with a free Cloudflare Tunnel (no VPS, no account, outbound only); or put the
+server on a small always-on host and point the pusher at it. Either way, do
+**not** port-forward into the school network, and never expose the NVR itself.

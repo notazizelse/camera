@@ -348,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", metavar="FILE",
                         help="save one JPEG from --channel and exit")
     parser.add_argument("--channel", type=int, default=102)
+    parser.add_argument("--json", action="store_true",
+                        help="machine-readable device + channel list, for scripts")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     if args.scan:
@@ -378,6 +380,20 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port, rtsp_port=args.rtsp_port,
         scheme="https" if args.https else "http",
     )
+
+    if args.json:
+        try:
+            payload = {
+                "ok": True,
+                "device": device.device_info(),
+                "names": {str(k): v for k, v in device.camera_names().items()},
+                "channels": device.channels(),
+                "rtsp_reachable": device.rtsp_reachable(),
+            }
+        except HikvisionError as exc:
+            payload = {"ok": False, "error": str(exc)}
+        print(json.dumps(payload, indent=2))
+        return 0 if payload["ok"] else 1
 
     if args.snapshot:
         try:

@@ -660,7 +660,9 @@ class QueueServer(ThreadingHTTPServer):
 def load_config(path: str | None) -> dict:
     cfg = json.loads(json.dumps(DEFAULTS))
     if path and os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
+        # utf-8-sig, not utf-8: PowerShell's Set-Content and Windows Notepad
+        # both write a BOM, and plain utf-8 chokes on it.
+        with open(path, encoding="utf-8-sig") as fh:
             cfg.update(json.load(fh))
     return cfg
 
