@@ -365,7 +365,8 @@ def pick_roi(cfg: dict, path: str) -> None:
 def load_config(path: str) -> dict:
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     if os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
+        # utf-8-sig: config written by PowerShell or Notepad carries a BOM.
+        with open(path, encoding="utf-8-sig") as fh:
             user = json.load(fh)
         cfg.update(user)
         cfg["snapshot"] = {**DEFAULT_CONFIG["snapshot"], **user.get("snapshot", {})}

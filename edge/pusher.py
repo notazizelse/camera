@@ -92,7 +92,8 @@ DEFAULT_CONFIG = {
 def load_config(path: str) -> dict:
     cfg = dict(DEFAULT_CONFIG)
     if os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
+        # utf-8-sig: config written by PowerShell or Notepad carries a BOM.
+        with open(path, encoding="utf-8-sig") as fh:
             cfg.update(json.load(fh))
     return cfg
 

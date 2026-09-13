@@ -7,3 +7,6 @@ edge/models/
 __pycache__/
 *.pyc
 .venv/
+
+deploy/secrets.ps1
+deploy/run-*.ps1
