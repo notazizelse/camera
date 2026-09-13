@@ -21,6 +21,7 @@ Two shapes of stream are supported:
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -118,3 +119,73 @@ class MediaRelay:
             "age_seconds": round(age, 1) if age is not None else None,
             "viewers": len(self._frame_subs),
         }
+
+
+CAMERA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+
+
+class MediaRegistry:
+    """One relay per camera.
+
+    An NVR has many channels and a school has many rooms, so the stream a
+    viewer wants is addressed by name rather than assumed. Ids are validated
+    against a strict pattern because they become URL path segments.
+    """
+
+    def __init__(self, cameras: list[dict] | None = None):
+        self._lock = threading.Lock()
+        self._relays: dict[str, MediaRelay] = {}
+        self._labels: dict[str, str] = {}
+        self._order: list[str] = []
+        for camera in cameras or []:
+            self.register(camera["id"], camera.get("label", camera["id"]))
+
+    @staticmethod
+    def valid(camera_id: str) -> bool:
+        return bool(camera_id and CAMERA_ID.match(camera_id))
+
+    def register(self, camera_id: str, label: str | None = None) -> None:
+        if not self.valid(camera_id):
+            raise ValueError(f"bad camera id: {camera_id!r}")
+        with self._lock:
+            if camera_id not in self._relays:
+                self._relays[camera_id] = MediaRelay()
+                self._order.append(camera_id)
+            if label:
+                self._labels[camera_id] = label
+
+    def relay(self, camera_id: str, create: bool = False) -> MediaRelay | None:
+        """Look up a camera's relay, optionally creating it on first push.
+
+        Creating on push means a new camera appears on the site the moment
+        the pusher starts, with no server restart - but only an ingest
+        holding the device key can do it, never a viewer.
+        """
+        with self._lock:
+            relay = self._relays.get(camera_id)
+        if relay or not create:
+            return relay
+        self.register(camera_id)
+        with self._lock:
+            return self._relays[camera_id]
+
+    def label(self, camera_id: str) -> str:
+        return self._labels.get(camera_id, camera_id)
+
+    def default_id(self) -> str | None:
+        """The first camera that is actually sending, else the first known."""
+        with self._lock:
+            order = list(self._order)
+        for camera_id in order:
+            if self._relays[camera_id].state()["available"]:
+                return camera_id
+        return order[0] if order else None
+
+    def listing(self) -> list[dict]:
+        with self._lock:
+            order = list(self._order)
+        return [
+            {"id": camera_id, "label": self.label(camera_id),
+             **self._relays[camera_id].state()}
+            for camera_id in order
+        ]

@@ -1,7 +1,17 @@
 {
-  "source": "rtsp://viewer:CHANGE_ME@10.0.12.40:554/Streaming/Channels/102",
+  "source": "rtsp://queue:CHANGE_ME@10.0.12.40:554/Streaming/Channels/102",
   "server_url": "https://queue.yourschool.example",
   "device_key": "CHANGE_ME_MUST_MATCH_SERVER_DEVICE_KEY",
+  "camera_id": "cafeteria",
+  "camera_label": "Cafeteria queue",
+  "isapi": {
+    "host": "10.0.12.40",
+    "port": 80,
+    "user": "queue",
+    "password": "CHANGE_ME",
+    "channel": 102,
+    "interval": 1.5
+  },
   "mode": "hls",
   "transcode": false,
   "height": 360,

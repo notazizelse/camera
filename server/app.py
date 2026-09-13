@@ -30,7 +30,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from media import MediaRelay
+from media import MediaRegistry
 from store import Store
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -60,6 +60,9 @@ DEFAULTS = {
     # audience: the count is public, the picture is not. See docs/forwarding.md.
     "video_enabled": True,
     "video_note": "Live view is limited to staff and students with the access code.",
+    # Cameras known before anything connects. A pusher holding the device key
+    # can add more at runtime; a viewer never can.
+    "cameras": [{"id": "cafeteria", "label": "Cafeteria queue"}],
 }
 
 
@@ -104,7 +107,7 @@ class App:
         self.device_key = device_key
         self.hub = Hub()
         self.snapshot: tuple[float, bytes] | None = None
-        self.relay = MediaRelay()
+        self.cameras = MediaRegistry(config.get("cameras"))
 
         # None means live video is switched off entirely - the safe default,
         # so an operator who never thought about who can watch never
@@ -339,6 +342,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _hls_target(self, path: str, create: bool):
+        """Split /api/hls/<camera>/<name> into a relay and a file name."""
+        rest = path[len("/api/hls/"):]
+        if "/" not in rest:
+            return None, None
+        camera_id, _, name = rest.partition("/")
+        if not MediaRegistry.valid(camera_id):
+            return None, None
+        return self.app.cameras.relay(camera_id, create=create), self._hls_name(name)
+
     def do_PUT(self):
         """ffmpeg pushes the playlist and each segment here."""
         path = urlparse(self.path).path
@@ -346,9 +359,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "not found"}, 404)
         if not self._authorized():
             return self._send_json({"error": "bad device key"}, 401)
-        name = self._hls_name(path)
-        if not name:
-            return self._send_json({"error": "bad segment name"}, 400)
+
+        relay, name = self._hls_target(path, create=True)
+        if not relay or not name:
+            return self._send_json({"error": "bad camera or segment name"}, 400)
 
         length = int(self.headers.get("Content-Length", 0))
         if length > 16_000_000:
@@ -356,9 +370,9 @@ class Handler(BaseHTTPRequestHandler):
         data = self.rfile.read(length)
 
         if name.endswith(".m3u8"):
-            self.app.relay.put_playlist(data)
+            relay.put_playlist(data)
         else:
-            self.app.relay.put_segment(name, data)
+            relay.put_segment(name, data)
         return self._send_json({"ok": True})
 
     def do_DELETE(self):
@@ -366,21 +380,26 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not path.startswith("/api/hls/") or not self._authorized():
             return self._send_json({"error": "not found"}, 404)
-        name = self._hls_name(path)
-        if name:
-            self.app.relay.drop_segment(name)
+        relay, name = self._hls_target(path, create=False)
+        if relay and name:
+            relay.drop_segment(name)
         return self._send_json({"ok": True})
 
     def do_POST(self):
         path = urlparse(self.path).path
 
-        if path == "/api/frame":
+        if path.startswith("/api/frame/"):
             if not self._authorized():
                 return self._send_json({"error": "bad device key"}, 401)
+            camera_id = path[len("/api/frame/"):]
+            relay = (self.app.cameras.relay(camera_id, create=True)
+                     if MediaRegistry.valid(camera_id) else None)
+            if not relay:
+                return self._send_json({"error": "bad camera id"}, 400)
             length = int(self.headers.get("Content-Length", 0))
             if not 0 < length <= 4_000_000:
                 return self._send_json({"error": "bad frame size"}, 400)
-            self.app.relay.put_frame(self.rfile.read(length))
+            relay.put_frame(self.rfile.read(length))
             return self._send_json({"ok": True})
 
         if path == "/api/access":
@@ -431,39 +450,57 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/stream":
             return self._sse()
 
-        # Public: says whether a picture exists and whether you may see it.
-        # Says nothing about what is in it.
+        # Public: says which cameras exist and whether you may watch them.
+        # Says nothing about what is in them.
         if path == "/api/media-state":
-            state = self.app.relay.state()
-            state["enabled"] = self.app.video_on
-            state["authorized"] = self._viewer_ok()
-            state["note"] = self.app.config.get("video_note", "")
-            return self._send_json(state)
+            return self._send_json({
+                "enabled": self.app.video_on,
+                "authorized": self._viewer_ok(),
+                "note": self.app.config.get("video_note", ""),
+                "default": self.app.cameras.default_id(),
+                "cameras": self.app.cameras.listing(),
+            })
 
-        if path.startswith("/live/") or path in ("/api/live.jpg", "/api/live.mjpg"):
+        if path.startswith("/live/") or path.startswith("/api/live/"):
             if not self.app.video_on:
                 return self._send_json({"error": "live video is disabled"}, 503)
             if not self._viewer_ok():
                 return self._send_json({"error": "access code required"}, 403)
-            if path == "/api/live.jpg":
-                return self._live_jpg()
-            if path == "/api/live.mjpg":
-                return self._live_mjpg()
+            if path.startswith("/api/live/"):
+                target = path[len("/api/live/"):]
+                camera_id, _, kind = target.rpartition(".")
+                relay = self._viewer_relay(camera_id)
+                if not relay:
+                    return self._send_json({"error": "no such camera"}, 404)
+                if kind == "jpg":
+                    return self._live_jpg(relay)
+                if kind == "mjpg":
+                    return self._live_mjpg(relay)
+                return self._send_json({"error": "not found"}, 404)
             return self._live_hls(path)
 
         return self._static(path)
 
     # ---------- live video ----------
 
+    def _viewer_relay(self, camera_id: str):
+        if not MediaRegistry.valid(camera_id):
+            return None
+        # create=False: a viewer must never be able to conjure a camera.
+        return self.app.cameras.relay(camera_id, create=False)
+
     def _live_hls(self, path: str):
-        name = self._hls_name(path)
-        if not name:
+        rest = path[len("/live/"):]
+        camera_id, _, raw_name = rest.partition("/")
+        relay = self._viewer_relay(camera_id)
+        name = self._hls_name(raw_name)
+        if not relay or not name:
             return self._send_json({"error": "not found"}, 404)
         if name.endswith(".m3u8"):
-            data = self.app.relay.get_playlist()
+            data = relay.get_playlist()
             ctype = "application/vnd.apple.mpegurl"
         else:
-            data = self.app.relay.get_segment(name)
+            data = relay.get_segment(name)
             ctype = "video/mp2t"
         if data is None:
             return self._send_json({"error": "not available"}, 404)
@@ -474,8 +511,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _live_jpg(self):
-        frame = self.app.relay.get_frame()
+    def _live_jpg(self, relay):
+        frame = relay.get_frame()
         if not frame:
             return self._send_json({"error": "no frame"}, 404)
         ts, data = frame
@@ -487,11 +524,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _live_mjpg(self):
+    def _live_mjpg(self, relay):
         """An endless multipart response - plays in a plain <img> tag."""
-        q = self.app.relay.subscribe_frames()
+        q = relay.subscribe_frames()
         self._stream_headers("multipart/x-mixed-replace; boundary=frame")
-        current = self.app.relay.get_frame()
+        current = relay.get_frame()
         try:
             if current:
                 self._write_part(current[1])
@@ -503,7 +540,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
-            self.app.relay.unsubscribe_frames(q)
+            relay.unsubscribe_frames(q)
 
     def _write_part(self, jpeg: bytes) -> None:
         header = (

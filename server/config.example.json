@@ -35,5 +35,13 @@
   "open_hours": {
     "start": "07:30",
     "end": "16:00"
-  }
+  },
+  "video_enabled": true,
+  "video_note": "Live view is limited to staff and students with the access code.",
+  "cameras": [
+    {
+      "id": "cafeteria",
+      "label": "Cafeteria queue"
+    }
+  ]
 }

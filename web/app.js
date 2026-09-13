@@ -466,6 +466,7 @@ async function init() {
     console.warn('config failed', err);
   }
 
+  initTheme();
   await loadSlowData();
   connect();
   initLive();

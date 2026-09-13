@@ -2,87 +2,142 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#fcfcfb">
-<title>Kitchen Queue</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f3f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e12" media="(prefers-color-scheme: dark)">
+<meta name="description" content="How long the canteen queue is right now, and whether it is worth waiting.">
+<title>Canteen Queue</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<script>
+  /* Stamp the saved theme before first paint, so switching themes does not
+     flash the other one on every page load. */
+  try {
+    var t = localStorage.getItem('theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* private browsing */ }
+</script>
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">🍽️</span>
-    <div>
-      <h1 id="site-name">Kitchen Queue</h1>
-      <p id="queue-name" class="muted">Main counter</p>
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🍽️</span>
+      <div>
+        <h1 id="site-name">Canteen Queue</h1>
+        <p id="queue-name" class="muted">Main counter</p>
+      </div>
     </div>
-  </div>
-  <div class="conn" id="conn" data-status="loading">
-    <span class="conn-dot" aria-hidden="true"></span>
-    <span class="conn-text">Connecting…</span>
+    <div class="topbar-actions">
+      <div class="conn" id="conn" data-status="loading">
+        <span class="conn-dot" aria-hidden="true"></span>
+        <span class="conn-text">Connecting…</span>
+      </div>
+      <button type="button" class="icon-btn" id="theme-btn"
+              title="Switch theme (T)" aria-label="Switch theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+        </svg>
+      </button>
+    </div>
   </div>
 </header>
 
 <main>
 
-  <!-- ---------------- hero: the one number people came for ---------------- -->
+  <!-- ---------------- the one number people came for ---------------- -->
   <section class="hero" id="hero" data-tone="unknown" aria-labelledby="hero-label">
     <h2 id="hero-label" class="section-label">Right now</h2>
-
     <div class="hero-grid">
-      <div class="hero-count">
+      <div>
         <div class="count-value" id="count" aria-live="polite" aria-atomic="true">–</div>
         <div class="count-unit">people in line</div>
       </div>
-
       <div class="hero-read">
-        <p class="status-pill" id="status-pill">
-          <span class="status-icon" id="status-icon" aria-hidden="true"></span>
+        <p class="status-pill">
+          <span class="status-icon" aria-hidden="true"></span>
           <span id="level-name">No data</span>
         </p>
         <p class="wait" id="wait">–</p>
         <p class="trend muted" id="trend"></p>
       </div>
     </div>
-
     <p class="freshness muted" id="freshness">Waiting for the counter…</p>
   </section>
 
   <!-- ---------------- advice ---------------- -->
-  <section class="card advice" id="advice" hidden>
+  <section class="card" id="advice" hidden>
     <h2 class="section-label">When to go</h2>
     <p class="advice-line" id="advice-line"></p>
   </section>
 
   <!-- ---------------- live camera ---------------- -->
-  <section class="card" id="live-card" hidden>
+  <section class="card" id="live-card" hidden aria-labelledby="live-label">
     <div class="card-head">
-      <h2 class="section-label">Live view</h2>
+      <h2 class="section-label" id="live-label">Live view</h2>
       <span class="muted small" id="live-status"></span>
     </div>
 
-    <!-- shown until the access code is entered -->
+    <!-- one chip per camera; hidden entirely when there is only one -->
+    <div class="cameras" id="cameras" role="group" aria-label="Choose a camera" hidden></div>
+
     <form class="gate" id="gate" hidden>
-      <label class="gate-label" for="gate-code">Access code</label>
+      <label class="section-label" for="gate-code">Access code</label>
       <div class="gate-row">
         <input type="password" id="gate-code" name="code" autocomplete="off"
-               inputmode="text" placeholder="Enter code" required>
-        <button type="submit">Watch</button>
+               placeholder="Enter code" required>
+        <button type="submit" class="btn">Watch</button>
       </div>
       <p class="muted small" id="gate-note"></p>
       <p class="gate-error" id="gate-error" hidden></p>
     </form>
 
     <div id="player" hidden>
-      <video id="video" class="video" playsinline muted controls></video>
-      <img id="video-img" class="video" alt="Live view of the canteen queue." hidden>
-      <p class="muted small" id="live-note"></p>
-    </div>
+      <div class="stage" id="stage">
+        <video id="video" class="video" playsinline muted></video>
+        <img id="video-img" class="video" hidden
+             alt="Live view of the canteen queue.">
 
-    <p class="muted small" id="live-offline" hidden>
-      The camera is not sending anything right now.
-    </p>
+        <span class="stage-badge" id="stage-badge" data-live="false">
+          <span class="chip-dot" aria-hidden="true"></span><span id="badge-text">Live</span>
+        </span>
+
+        <div class="stage-message" id="stage-message" hidden>
+          <b id="stage-message-title">Camera offline</b>
+          <span id="stage-message-body">Nothing is arriving from the cafeteria PC.</span>
+        </div>
+
+        <div class="stage-tools">
+          <button type="button" class="icon-btn" id="snap-btn"
+                  title="Save a still (S)" aria-label="Save a still">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7h3l2-2h8l2 2h3v12H3z"/><circle cx="12" cy="13" r="3.5"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="pip-btn"
+                  title="Picture in picture (P)" aria-label="Picture in picture" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <rect x="12" y="12" width="7" height="5" rx="1"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="full-btn"
+                  title="Fullscreen (F)" aria-label="Fullscreen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <p class="live-meta" id="live-meta"></p>
+    </div>
   </section>
 
   <!-- ---------------- live trend ---------------- -->
@@ -91,7 +146,7 @@
       <h2 class="section-label">Last 90 minutes</h2>
       <span class="muted small">people in line</span>
     </div>
-    <figure class="chart" id="chart-live-wrap">
+    <figure class="chart">
       <div class="chart-slot" id="chart-live"></div>
       <figcaption class="muted small">Updated every few seconds from the counter.</figcaption>
     </figure>
@@ -109,7 +164,7 @@
     </div>
     <figure class="chart">
       <div class="chart-slot" id="chart-pattern"></div>
-      <figcaption class="muted small" id="pattern-note">
+      <figcaption class="muted small">
         Averaged over the last few weeks. The marker shows where you are now.
       </figcaption>
     </figure>
@@ -125,29 +180,25 @@
       <h2 class="section-label">Queue shape</h2>
       <span class="muted small">pixelated, refreshed every 30s</span>
     </div>
-    <img id="snapshot" class="snapshot" alt="Pixelated outline of the queue area with blocks showing where people are standing.">
+    <img id="snapshot" class="snapshot" alt="Pixelated outline of the queue area.">
     <p class="muted small">
-      Deliberately destroyed to about 20&times;15 pixels before it leaves the kitchen.
-      It shows how long the line is, and nothing about who is in it.
+      Destroyed to about 20&times;15 pixels before it leaves the kitchen. It shows
+      how long the line is, and nothing about who is in it.
     </p>
   </section>
 
   <!-- ---------------- trust ---------------- -->
   <section class="card privacy">
     <h2 class="section-label">What this does and doesn't do</h2>
-
-    <!-- Counting only. Shown when no camera is being forwarded. -->
     <ul id="privacy-count">
-      <li><strong>No footage leaves the kitchen.</strong> A small computer beside the camera counts people and sends one number.</li>
+      <li><strong>No footage leaves the kitchen.</strong> A computer beside the camera counts people and sends one number.</li>
       <li><strong>No faces, no names, no recording.</strong> Frames are processed in memory and discarded immediately.</li>
       <li><strong>No tracking of you.</strong> This page stores nothing about who is reading it.</li>
     </ul>
-
-    <!-- Live view is on. These have to be true, so keep them true. -->
     <ul id="privacy-video" hidden>
       <li><strong>The queue count is public. The picture is not.</strong> Live view needs the access code the school gives out.</li>
       <li><strong>Never any sound.</strong> Audio is dropped at the camera and never sent.</li>
-      <li><strong>Nothing is recorded.</strong> The server holds a few seconds of video in memory and overwrites it continuously — there is no archive to request, share, or leak.</li>
+      <li><strong>Nothing is recorded.</strong> The server holds a few seconds in memory and overwrites it continuously — there is no archive to request, share, or leak.</li>
       <li><strong>No tracking of you.</strong> This page stores nothing about who is reading it.</li>
     </ul>
   </section>
@@ -156,9 +207,11 @@
 
 <footer class="foot muted small">
   <span id="foot-device"></span>
+  <span class="keys"><kbd>F</kbd> fullscreen · <kbd>S</kbd> still · <kbd>T</kbd> theme · <kbd>1-9</kbd> camera</span>
 </footer>
 
 <div class="tooltip" id="tooltip" role="status" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
 
 <script src="live.js"></script>
 <script src="app.js"></script>
