@@ -1,15 +1,15 @@
 /* Live camera panel.
  *
- * Three ways to show a picture, in descending order of quality, each falling
- * back to the next when the browser or the network will not cooperate:
+ * Playback degrades on purpose, in this order:
  *
- *   1. HLS played natively (Safari, iOS - no library at all)
- *   2. HLS via hls.js (everything else)
- *   3. JPEG frames, either as a multipart stream or polled one at a time
+ *   1. HLS through hls.js              (Chrome, Edge, Firefox, Android)
+ *   2. HLS played natively             (iOS Safari, where MSE is absent)
+ *   3. JPEG frames as a multipart stream
+ *   4. JPEG frames polled one at a time
  *
- * The third always works. That matters more than it sounds: it is the path
- * that survives a school proxy that mangles everything else, and it is what
- * the page lands on rather than showing a broken player.
+ * The last one always works. That matters more than it sounds: it is the
+ * path that survives a school proxy which mangles everything else, and it is
+ * where the page lands instead of showing a black rectangle.
  */
 
 const HLS_LIB = [
@@ -18,9 +18,50 @@ const HLS_LIB = [
 ];
 
 const live = {
-  card: null, video: null, img: null,
+  card: null, video: null, img: null, stage: null,
   mode: null, hls: null, poll: null, blackTimer: null,
+  cameras: [], current: null, authorized: false,
 };
+
+const el = (id) => document.getElementById(id);
+
+/* ------------------------------------------------------------------ chrome */
+
+function toast(message) {
+  const node = el('toast');
+  node.textContent = message;
+  node.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { node.hidden = true; }, 2600);
+}
+
+/* Theme cycles light -> dark -> system. "System" is the absence of a stamp,
+   which is what the CSS is written against, so clearing it is the reset. */
+function applyTheme(theme) {
+  if (theme === 'light' || theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', theme);
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  try { localStorage.setItem('theme', theme); } catch { /* private mode */ }
+}
+
+function initTheme() {
+  let saved = 'system';
+  try { saved = localStorage.getItem('theme') || 'system'; } catch { /* ignore */ }
+  applyTheme(saved);
+  el('theme-btn').addEventListener('click', () => {
+    const order = ['light', 'dark', 'system'];
+    let current = 'system';
+    try { current = localStorage.getItem('theme') || 'system'; } catch { /* ignore */ }
+    const next = order[(order.indexOf(current) + 1) % order.length];
+    applyTheme(next);
+    toast(`Theme: ${next}`);
+    if (typeof redraw === 'function') redraw();   // charts read CSS tokens
+  });
+}
+
+/* ------------------------------------------------------------------ player */
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -50,102 +91,220 @@ function teardownPlayer() {
   live.video.onerror = null;
   live.video.removeAttribute('src');
   live.video.load();
+  live.img.onerror = null;
   live.img.removeAttribute('src');
   live.mode = null;
 }
 
-function showVideo(useVideoTag) {
-  live.video.hidden = !useVideoTag;
-  live.img.hidden = useVideoTag;
+function showVideoTag(useVideo) {
+  live.video.hidden = !useVideo;
+  live.img.hidden = useVideo;
+  el('pip-btn').hidden = !(useVideo && document.pictureInPictureEnabled);
 }
 
-/* JPEG fallback. The multipart stream is one long-lived request; if the
-   browser or a proxy refuses it, poll single frames instead. */
-function startFrames(note) {
-  showVideo(false);
-  live.img.src = 'api/live.mjpg';
+function setMeta(text) { el('live-meta').textContent = text; }
+
+function stageMessage(title, body) {
+  el('stage-message').hidden = !title;
+  if (title) {
+    el('stage-message-title').textContent = title;
+    el('stage-message-body').textContent = body || '';
+  }
+}
+
+function startFrames(camera) {
+  showVideoTag(false);
+  stageMessage(null);
+
+  let failures = 0;
   live.img.onerror = () => {
-    live.img.onerror = null;
-    if (live.poll) return;
-    live.poll = setInterval(() => {
-      live.img.src = `api/live.jpg?t=${Date.now()}`;
-    }, 2000);
-    live.img.src = `api/live.jpg?t=${Date.now()}`;
-    note.textContent = 'Refreshed every 2 seconds.';
+    failures += 1;
+    if (failures === 1) {
+      // The multipart stream was refused somewhere upstream. Poll instead.
+      live.poll = setInterval(() => {
+        live.img.src = `api/live/${camera}.jpg?t=${Date.now()}`;
+      }, 2000);
+      live.img.src = `api/live/${camera}.jpg?t=${Date.now()}`;
+      setMeta('stills · refreshed every 2s');
+      return;
+    }
+    if (failures >= 3) {
+      // Stills are the last resort, so if they fail too there is nothing
+      // left to try. Say so rather than leaving a broken image on screen.
+      if (live.poll) { clearInterval(live.poll); live.poll = null; }
+      live.img.onerror = null;
+      live.img.removeAttribute('src');
+      stageMessage('Live view unavailable',
+        'The stream reached this page but could not be played. The queue count above still works.');
+      setMeta('');
+    }
   };
-  note.textContent = 'Updating as frames arrive.';
+
+  live.img.src = `api/live/${camera}.mjpg`;
+  setMeta('stills · updating as frames arrive');
 }
 
-async function startPlayer(mode) {
-  if (live.mode === mode) return;
+/* A player can report no error and still show nothing. If no frame has
+   decoded after 12 seconds, stop believing it and fall back. */
+function watchForBlackScreen(camera) {
+  clearTimeout(live.blackTimer);
+  live.blackTimer = setTimeout(() => {
+    if (live.mode !== 'frames' && live.video.readyState < 2) {
+      teardownPlayer();
+      live.mode = 'frames';
+      startFrames(camera);
+    }
+  }, 12000);
+}
+
+async function startPlayer(camera, mode) {
+  const key = `${camera}:${mode}`;
+  if (live.mode === key) return;
   teardownPlayer();
-  live.mode = mode;
-  const note = document.getElementById('live-note');
+  live.mode = key;
+  stageMessage(null);
 
   if (mode === 'snapshot') {
-    startFrames(note);
+    live.mode = 'frames';
+    startFrames(camera);
     return;
   }
 
-  const src = 'live/stream.m3u8';
+  const src = `live/${camera}/stream.m3u8`;
   const nativeClaim = live.video.canPlayType('application/vnd.apple.mpegurl');
 
   const useNative = () => {
-    showVideo(true);
+    showVideoTag(true);
     live.video.src = src;
-    live.video.onerror = () => { live.mode = null; startPlayer('snapshot'); };
-    live.video.play().catch(() => { /* controls are there if autoplay is blocked */ });
-    note.textContent = 'Live, about 8 seconds behind.';
-    watchForBlackScreen(note);
+    live.video.onerror = () => { live.mode = null; startPlayer(camera, 'snapshot'); };
+    live.video.play().catch(() => { /* autoplay blocked; the tap will start it */ });
+    setMeta('HLS (native) · about 8s behind live');
+    watchForBlackScreen(camera);
   };
 
-  // Chromium answers "maybe" to the HLS canPlayType question and then cannot
-  // play it, so that answer is only trustworthy when Media Source Extensions
-  // are missing - which is exactly the iOS Safari case where native playback
-  // is genuinely the right path, and where loading a library would be waste.
+  // Chromium answers "maybe" to this question and then cannot play it, so the
+  // answer is only trustworthy where Media Source Extensions are missing -
+  // exactly the iOS Safari case, where native really is the right path and
+  // downloading a library would be waste.
   if (!window.MediaSource && nativeClaim) {
     useNative();
     return;
   }
 
   if (await ensureHlsLib() && window.Hls.isSupported()) {
-    showVideo(true);
+    showVideoTag(true);
     live.hls = new window.Hls({ lowLatencyMode: true, backBufferLength: 10 });
     live.hls.loadSource(src);
     live.hls.attachMedia(live.video);
     live.hls.on(window.Hls.Events.ERROR, (_event, data) => {
-      // The pusher stopped, or the playlist rolled away under us. Frames
-      // still work, so drop to them rather than showing a black rectangle.
       if (data.fatal) {
         teardownPlayer();
-        startPlayer('snapshot');
+        live.mode = 'frames';
+        startFrames(camera);
       }
     });
     live.video.play().catch(() => {});
-    note.textContent = 'Live, about 8 seconds behind.';
-    watchForBlackScreen(note);
+    setMeta('HLS · about 8s behind live');
+    watchForBlackScreen(camera);
     return;
   }
 
-  if (nativeClaim) {
-    useNative();
-    return;
-  }
-  startFrames(note);
+  if (nativeClaim) { useNative(); return; }
+  live.mode = 'frames';
+  startFrames(camera);
 }
 
-/* Every failure above still leaves the possibility of a player that reports
-   no error and shows nothing. If no frame has decoded after 12 seconds, stop
-   believing the player and switch to something that works. */
-function watchForBlackScreen(note) {
-  clearTimeout(live.blackTimer);
-  live.blackTimer = setTimeout(() => {
-    if (live.mode !== 'snapshot' && live.video.readyState < 2) {
-      teardownPlayer();
-      startFrames(note);
-      live.mode = 'snapshot';
-    }
-  }, 12000);
+/* ------------------------------------------------------------------ tools */
+
+function currentFrameSource() {
+  return live.video.hidden ? live.img : live.video;
+}
+
+/* Save what is on screen. Canvas works here because everything is served
+   from this origin, so the canvas never gets tainted. */
+function saveStill() {
+  const source = currentFrameSource();
+  const width = source.videoWidth || source.naturalWidth;
+  const height = source.videoHeight || source.naturalHeight;
+  if (!width || !height) { toast('Nothing to save yet'); return; }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(source, 0, 0, width, height);
+  canvas.toBlob((blob) => {
+    if (!blob) { toast('Could not save the image'); return; }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    link.href = url;
+    link.download = `${live.current || 'camera'}-${stamp}.jpg`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Still saved');
+  }, 'image/jpeg', 0.92);
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await live.stage.requestFullscreen();
+  } catch { toast('Fullscreen not available'); }
+}
+
+async function togglePip() {
+  try {
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else await live.video.requestPictureInPicture();
+  } catch { toast('Picture-in-picture not available'); }
+}
+
+/* ------------------------------------------------------------------ state */
+
+function renderCameras() {
+  const host = el('cameras');
+  // A single camera needs no switcher; the card title already names it.
+  host.hidden = live.cameras.length < 2;
+  if (host.hidden) { host.innerHTML = ''; return; }
+
+  host.innerHTML = '';
+  live.cameras.forEach((camera, index) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.dataset.live = String(!!camera.available);
+    chip.setAttribute('aria-pressed', String(camera.id === live.current));
+    chip.title = `${camera.label}${index < 9 ? ` (${index + 1})` : ''}`;
+    chip.innerHTML = '<span class="chip-dot" aria-hidden="true"></span>';
+    chip.append(camera.label);
+    chip.addEventListener('click', () => selectCamera(camera.id));
+    host.appendChild(chip);
+  });
+}
+
+function selectCamera(id) {
+  if (id === live.current) return;
+  live.current = id;
+  try { localStorage.setItem('camera', id); } catch { /* ignore */ }
+  teardownPlayer();
+  renderCameras();
+  refreshMedia();
+}
+
+function renderPlayerFor(camera) {
+  el('badge-text').textContent = camera.available ? 'Live' : 'Offline';
+  el('stage-badge').dataset.live = String(!!camera.available);
+  el('live-status').textContent = camera.label;
+
+  if (!camera.available) {
+    teardownPlayer();
+    showVideoTag(false);
+    stageMessage('Camera offline',
+      'Nothing is arriving from the cafeteria PC. The queue count above still works.');
+    setMeta('');
+    return;
+  }
+  startPlayer(camera.id, camera.mode);
 }
 
 async function refreshMedia() {
@@ -156,57 +315,67 @@ async function refreshMedia() {
     return;
   }
 
-  // The promises at the bottom of the page have to match what the system
+  // The promises at the bottom of the page must match what the system
   // actually does, so they follow the mode rather than being hardcoded.
-  document.getElementById('privacy-count').hidden = media.enabled;
-  document.getElementById('privacy-video').hidden = !media.enabled;
+  el('privacy-count').hidden = media.enabled;
+  el('privacy-video').hidden = !media.enabled;
 
   if (!media.enabled) {
     live.card.hidden = true;
     return;
   }
   live.card.hidden = false;
-  document.getElementById('gate-note').textContent = media.note || '';
+  live.cameras = media.cameras || [];
+  live.authorized = !!media.authorized;
+  el('gate-note').textContent = media.note || '';
 
-  const gate = document.getElementById('gate');
-  const player = document.getElementById('player');
-  const offline = document.getElementById('live-offline');
-  const status = document.getElementById('live-status');
+  if (!live.cameras.some((c) => c.id === live.current)) {
+    let saved = null;
+    try { saved = localStorage.getItem('camera'); } catch { /* ignore */ }
+    live.current = (live.cameras.some((c) => c.id === saved) && saved)
+      || media.default
+      || (live.cameras[0] && live.cameras[0].id)
+      || null;
+  }
+
+  const gate = el('gate');
+  const player = el('player');
 
   if (!media.authorized) {
     gate.hidden = false;
     player.hidden = true;
-    offline.hidden = true;
-    status.textContent = media.available ? 'camera online' : 'camera offline';
+    el('cameras').hidden = true;
+    el('live-status').textContent = live.cameras.some((c) => c.available)
+      ? 'camera online' : 'camera offline';
     teardownPlayer();
     return;
   }
 
   gate.hidden = true;
-  if (!media.available) {
-    player.hidden = true;
-    offline.hidden = false;
-    status.textContent = 'offline';
-    teardownPlayer();
+  player.hidden = false;
+  renderCameras();
+
+  const camera = live.cameras.find((c) => c.id === live.current);
+  if (!camera) {
+    stageMessage('No cameras', 'Nothing has been connected to this site yet.');
     return;
   }
-
-  offline.hidden = true;
-  player.hidden = false;
-  status.textContent = `${media.mode} · ${humanAge(media.age_seconds)}`;
-  startPlayer(media.mode);
+  renderPlayerFor(camera);
 }
 
+/* ------------------------------------------------------------------- init */
+
 function initLive() {
-  live.card = document.getElementById('live-card');
-  live.video = document.getElementById('video');
-  live.img = document.getElementById('video-img');
+  live.card = el('live-card');
+  live.video = el('video');
+  live.img = el('video-img');
+  live.stage = el('stage');
   if (!live.card) return;
 
-  document.getElementById('gate').addEventListener('submit', async (event) => {
+  el('gate').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const input = document.getElementById('gate-code');
-    const error = document.getElementById('gate-error');
+    const input = el('gate-code');
+    const error = el('gate-error');
     error.hidden = true;
     try {
       const res = await fetch('api/access', {
@@ -225,6 +394,27 @@ function initLive() {
     } catch {
       error.textContent = 'Could not reach the server.';
       error.hidden = false;
+    }
+  });
+
+  el('snap-btn').addEventListener('click', saveStill);
+  el('full-btn').addEventListener('click', toggleFullscreen);
+  el('pip-btn').addEventListener('click', togglePip);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const tag = (event.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+
+    const key = event.key.toLowerCase();
+    if (key === 't') { el('theme-btn').click(); return; }
+    if (!live.authorized || live.card.hidden) return;
+    if (key === 'f') toggleFullscreen();
+    else if (key === 's') saveStill();
+    else if (key === 'p' && !el('pip-btn').hidden) togglePip();
+    else if (/^[1-9]$/.test(key)) {
+      const camera = live.cameras[Number(key) - 1];
+      if (camera) selectCamera(camera.id);
     }
   });
 

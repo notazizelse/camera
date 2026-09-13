@@ -57,9 +57,10 @@ def main() -> None:
     ap.add_argument("--duration", type=int, default=2, help="segment seconds")
     ap.add_argument("--window", type=int, default=6, help="segments in the playlist")
     ap.add_argument("--count", type=int, default=0, help="stop after N segments (0 = forever)")
+    ap.add_argument("--camera", default="cafeteria", help="camera id to push to")
     args = ap.parse_args()
 
-    base = args.url.rstrip("/") + "/api/hls"
+    base = f"{args.url.rstrip('/')}/api/hls/{args.camera}"
     live: list[int] = []
     n = 0
     print(f"pushing fake segments to {base} every {args.duration}s")

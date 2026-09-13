@@ -56,6 +56,19 @@ DEFAULT_CONFIG = {
     "source": "rtsp://user:pass@10.0.12.40:554/Streaming/Channels/102",
     "server_url": "https://queue.yourschool.example",
     "device_key": "CHANGE_ME_LONG_RANDOM_STRING",
+    # Which camera on the site this feeds. Run one pusher per camera.
+    "camera_id": "cafeteria",
+    "camera_label": "Cafeteria queue",
+    # Hikvision/iVMS devices only: lets --source isapi pull JPEGs straight
+    # from the NVR over HTTP, with no ffmpeg installed anywhere.
+    "isapi": {
+        "host": "",
+        "port": 80,
+        "user": "viewer",
+        "password": "",
+        "channel": 102,
+        "interval": 1.5,
+    },
     "mode": "hls",
     # Leave transcode off if you can: copying the camera's existing H.264 uses
     # almost no CPU, so the cafeteria PC stays usable. Turn it on only if the
@@ -144,8 +157,12 @@ def video_args(cfg: dict, for_hls: bool) -> list[str]:
     return args
 
 
+def frame_url(cfg: dict) -> str:
+    return f"{cfg['server_url'].rstrip('/')}/api/frame/{cfg['camera_id']}"
+
+
 def build_command(cfg: dict, source: str) -> list[str]:
-    base = cfg["server_url"].rstrip("/")
+    base = f"{cfg['server_url'].rstrip('/')}/api/hls/{cfg['camera_id']}"
     ff = [cfg["ffmpeg"], "-hide_banner", "-loglevel", "warning", "-nostdin"]
     ff += input_args(source, cfg)
     # Audio is dropped, always. A recording of what people say in a queue is a
@@ -169,13 +186,13 @@ def build_command(cfg: dict, source: str) -> list[str]:
         "-hls_flags", "delete_segments+omit_endlist+independent_segments",
         "-hls_allow_cache", "0",
         "-hls_segment_type", "mpegts",
-        "-hls_segment_filename", f"{base}/api/hls/seg%03d.ts",
+        "-hls_segment_filename", f"{base}/seg%03d.ts",
         "-method", "PUT",
         # One connection per segment. Slightly less efficient than persistent
         # connections, and considerably less likely to wedge behind a proxy.
         "-http_persistent", "0",
         "-headers", f"X-Device-Key: {cfg['device_key']}\r\n",
-        f"{base}/api/hls/stream.m3u8",
+        f"{base}/stream.m3u8",
     ]
 
 
@@ -193,10 +210,11 @@ class Watchdog(threading.Thread):
     no local timeout does.
     """
 
-    def __init__(self, server_url: str, proc: subprocess.Popen,
+    def __init__(self, server_url: str, camera_id: str, proc: subprocess.Popen,
                  grace: float = 45.0, stale_after: float = 30.0):
         super().__init__(daemon=True)
         self.url = server_url.rstrip("/") + "/api/media-state"
+        self.camera_id = camera_id
         self.proc = proc
         self.grace = grace
         self.stale_after = stale_after
@@ -216,8 +234,12 @@ class Watchdog(threading.Thread):
             except (urllib.error.URLError, OSError, ValueError):
                 continue  # the check itself failed; do not blame the stream
 
-            age = state.get("age_seconds")
-            fresh = state.get("available") and age is not None and age < self.stale_after
+            mine = next((c for c in state.get("cameras", [])
+                         if c.get("id") == self.camera_id), None)
+            if mine is None:
+                continue  # the server has not heard of this camera yet
+            age = mine.get("age_seconds")
+            fresh = mine.get("available") and age is not None and age < self.stale_after
             misses = 0 if fresh else misses + 1
             if misses >= 3:
                 print(f"  watchdog: server has seen nothing for ~{age}s, restarting ffmpeg")
@@ -298,7 +320,56 @@ def drain_stderr(proc: subprocess.Popen) -> None:
             print(f"  ffmpeg: {text}")
 
 
+def run_isapi(cfg: dict, once: bool = False) -> None:
+    """Pull JPEGs straight from a Hikvision device. No ffmpeg anywhere.
+
+    This is the fastest route to a working live view on a school PC: nothing
+    to install, nothing to add to PATH, and no encoder competing with
+    iVMS-4200 for CPU. A frame or two a second is plenty for a queue.
+    """
+    sys.path.insert(0, ROOT)
+    from hikvision import Hikvision, HikvisionError
+
+    settings = cfg["isapi"]
+    if not settings.get("host"):
+        sys.exit("set isapi.host in pusher.json "
+                 "(run: python edge/hikvision.py --scan)")
+
+    device = Hikvision(
+        settings["host"], settings["user"], settings["password"],
+        port=settings.get("port", 80),
+    )
+    channel = settings.get("channel", 102)
+    interval = float(settings.get("interval", 1.5))
+    uploader = FrameUploader(frame_url(cfg), cfg["device_key"])
+    uploader.start()
+
+    print(f"pulling channel {channel} from {settings['host']} "
+          f"every {interval}s -> camera {cfg['camera_id']!r}")
+
+    failures = 0
+    while True:
+        started = time.time()
+        try:
+            uploader.send(device.snapshot(channel))
+            if failures:
+                print("  recovered")
+            failures = 0
+        except HikvisionError as exc:
+            failures += 1
+            # Log the first failure and then every tenth, so a camera that is
+            # down overnight does not produce a gigabyte of identical lines.
+            if failures == 1 or failures % 10 == 0:
+                print(f"  snapshot failed ({failures}x): {exc}")
+        if once:
+            return
+        time.sleep(max(0.2, interval - (time.time() - started)))
+
+
 def run_forever(cfg: dict, source: str, once: bool = False) -> None:
+    if source == "isapi":
+        return run_isapi(cfg, once)
+
     if not shutil.which(cfg["ffmpeg"]):
         sys.exit(
             f"ffmpeg not found (looked for {cfg['ffmpeg']!r}).\n"
@@ -309,9 +380,7 @@ def run_forever(cfg: dict, source: str, once: bool = False) -> None:
 
     uploader = None
     if cfg["mode"] == "snapshot":
-        uploader = FrameUploader(
-            cfg["server_url"].rstrip("/") + "/api/frame", cfg["device_key"]
-        )
+        uploader = FrameUploader(frame_url(cfg), cfg["device_key"])
         uploader.start()
 
     backoff = 2.0
@@ -329,7 +398,7 @@ def run_forever(cfg: dict, source: str, once: bool = False) -> None:
 
         watchdog = None
         if cfg["mode"] != "rtmp":
-            watchdog = Watchdog(cfg["server_url"], proc)
+            watchdog = Watchdog(cfg["server_url"], cfg["camera_id"], proc)
             watchdog.start()
 
         try:
@@ -367,7 +436,9 @@ def main() -> None:
         epilog=__doc__.split("Three ways to send")[0],
     )
     ap.add_argument("--config", default=os.path.join(ROOT, "pusher.json"))
-    ap.add_argument("--source", help="rtsp URL, 'screen', 'window:Title', 'dshow:Name'")
+    ap.add_argument("--source",
+                    help="rtsp URL, 'isapi', 'screen', 'window:Title', 'dshow:Name'")
+    ap.add_argument("--camera", help="camera id on the site (default from config)")
     ap.add_argument("--mode", choices=["hls", "snapshot", "rtmp"])
     ap.add_argument("--server", help="base URL of the queue server")
     ap.add_argument("--key", help="device key (matches the server's DEVICE_KEY)")
@@ -397,6 +468,8 @@ def main() -> None:
         cfg["device_key"] = args.key
     if args.transcode:
         cfg["transcode"] = True
+    if args.camera:
+        cfg["camera_id"] = args.camera
 
     source = args.source or cfg["source"]
     if args.test:
@@ -405,6 +478,9 @@ def main() -> None:
         cfg["transcode"] = True
 
     if args.print_command:
+        if source == "isapi":
+            print("isapi mode runs in Python; there is no ffmpeg command")
+            return
         print(" ".join(redact(part) for part in build_command(cfg, source)))
         return
 

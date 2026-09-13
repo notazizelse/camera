@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Canteen queue">
+  <rect width="512" height="512" rx="112" fill="#1c5cab"/>
+  <g fill="#ffffff">
+    <circle cx="160" cy="150" r="42"/>
+    <rect x="122" y="206" width="76" height="118" rx="34"/>
+    <circle cx="256" cy="150" r="42" opacity=".8"/>
+    <rect x="218" y="206" width="76" height="118" rx="34" opacity=".8"/>
+    <circle cx="352" cy="150" r="42" opacity=".55"/>
+    <rect x="314" y="206" width="76" height="118" rx="34" opacity=".55"/>
+    <rect x="112" y="372" width="288" height="20" rx="10" opacity=".45"/>
+  </g>
+</svg>

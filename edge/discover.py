@@ -157,8 +157,18 @@ def codec_of(sdp: str) -> str:
     return video[0] if video else (codecs[0] if codecs else "?")
 
 
-def probe_host(host: str, port: int, user: str, password: str) -> list[tuple[str, str, str]]:
+def probe_host(host: str, port: int, user: str, password: str,
+               max_auth_failures: int = 2) -> list[tuple[str, str, str]]:
+    """Try the known paths, but stop early if the credentials are being refused.
+
+    Hikvision devices lock out an IP address after a handful of failed logins
+    (Configuration -> System -> Security -> Illegal Login Lock), typically for
+    30 minutes. Walking all seventeen paths with a wrong password would lock
+    the cafeteria PC out of the school's own CCTV. So the moment it looks like
+    an auth problem rather than a path problem, back off and say so.
+    """
     found = []
+    auth_failures = 0
     for vendor, path in PATHS:
         status, text = describe(host, port, path, user, password)
         if status == 200:
@@ -167,6 +177,11 @@ def probe_host(host: str, port: int, user: str, password: str) -> list[tuple[str
             # The path exists but the credentials were refused - worth saying
             # so, because it means you have the right URL and the wrong login.
             found.append((f"rtsp://{host}:{port}{path}", vendor, "AUTH FAILED"))
+            auth_failures += 1
+            if auth_failures >= max_auth_failures:
+                print(f"  {host}: credentials refused twice - stopping before the "
+                      "device locks this IP out. Fix --user/--password first.")
+                break
     return found
 
 

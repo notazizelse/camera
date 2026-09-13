@@ -71,6 +71,7 @@ to staff.
 | `edge/counter.py` | Counts people in a region and POSTs the number. |
 | `edge/pusher.py` | Forwards the live picture. ffmpeg supervision, watchdog, three transports. |
 | `edge/discover.py` | Finds the camera's RTSP URL when the NVR software won't tell you. |
+| `edge/hikvision.py` | Hikvision/iVMS-4200 devices: channel list, snapshots, ready-made config. |
 | `web/` | The student-facing page. Vanilla JS, hand-built SVG charts, no dependencies. |
 | `scripts/simulate.py` | Fake counter for development and demos. |
 | `scripts/fake_stream.py` | Fake video pusher - tests the relay with no ffmpeg and no camera. |
@@ -78,18 +79,30 @@ to staff.
 
 ## Forwarding the live camera
 
-If you already have a PC that can see the footage, that PC is the whole edge:
+If a PC can already see the footage, that PC is the whole edge.
+
+**On a Hikvision / iVMS-4200 system** — read the IP and login out of iVMS,
+then ignore iVMS entirely and talk to the NVR directly:
 
 ```bash
-winget install Gyan.FFmpeg
+python edge/hikvision.py --host 10.0.12.40 --user queue --password THEPASSWORD
 ```
+
+```bash
+python edge/pusher.py --source isapi --camera cafeteria
+```
+
+That second command needs **no ffmpeg at all** — it pulls JPEGs straight from
+the NVR over HTTP. Step-by-step: [`docs/ivms.md`](docs/ivms.md).
+
+**Any other system** — find the RTSP URL, then push HLS:
 
 ```bash
 python edge/discover.py --user viewer --password THEPASSWORD
 ```
 
 ```bash
-python edge/pusher.py --test
+python edge/pusher.py --test --camera cafeteria
 ```
 
 `--test` pushes a test pattern, so you can confirm the entire path before
